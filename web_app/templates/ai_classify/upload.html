@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+{% block title %}AI 자동 분류 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">
+    🤖 AI 파일 자동 분류
+    <a href="/settings" class="ai-badge {% if not ai_ready() %}off{% endif %}" title="이 분석에 사용되는 AI 모델 — 클릭하면 설정">
+      <span class="dot"></span>🧠 {{ ai_label() }}
+    </a>
+  </h1>
+  <div class="flex gap-2">
+    <a href="/sales" class="btn btn-secondary">매출</a>
+    <a href="/purchases" class="btn btn-secondary">매입</a>
+    <a href="/payroll" class="btn btn-secondary">급여</a>
+  </div>
+</div>
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">사용 방법</h3>
+  <ol class="text-sm text-slate-700 space-y-1 ml-4 list-decimal">
+    <li>매출·매입·급여·비용 어느 종류든 <b>Excel/CSV/PDF</b> 파일을 그대로 업로드</li>
+    <li>🤖 AI가 헤더와 샘플을 보고 <b>도메인</b>(매출/매입/급여/비용)과 <b>컬럼 매핑</b>을 자동 추정</li>
+    <li>추정 결과를 확인·수정 후 <b>"적용"</b> → 해당 영역(매출/매입 등)에 일괄 등록</li>
+    <li>표준 양식이 아니어도 다양한 형식의 파일을 받아 정리합니다</li>
+    <li class="text-slate-500">PDF는 표(table)를 우선 추출하며, 표가 없으면 텍스트를 줄 단위로 분석합니다. (스캔본 PDF는 OCR이 없어 인식이 어려울 수 있음)</li>
+  </ol>
+  {% if not ollama_ok %}
+  <div class="mt-2 text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">
+    ⚠️ Ollama가 실행되지 않아 AI 자동 추정이 작동하지 않습니다. 도메인·매핑을 수동으로 선택해 주세요.
+  </div>
+  {% endif %}
+</div>
+
+{% if errors %}
+<div class="card mb-4 bg-red-50 border border-red-300">
+  <h3 class="font-semibold text-red-800 mb-2">⚠️ 오류</h3>
+  <ul class="text-sm text-red-700 space-y-1">
+    {% for e in errors %}<li>• {{ e }}</li>{% endfor %}
+  </ul>
+  <a href="/ai-classify" class="btn btn-secondary mt-3">다시 시도</a>
+</div>
+{% endif %}
+
+{% if not analysis %}
+<!-- 1단계: 파일 업로드 폼 -->
+<form method="post" action="/ai-classify/analyze" enctype="multipart/form-data" class="card">
+  <label class="block mb-3">
+    <span class="text-sm font-medium text-slate-700">파일 선택 (.xlsx, .xls, .csv, .pdf)</span>
+    <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.csv,.pdf" required class="mt-2 block w-full text-sm text-slate-600
+      file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold
+      file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 cursor-pointer">
+  </label>
+
+  <label class="block mb-3">
+    <span class="text-sm font-medium text-slate-700">AI 모델</span>
+    <select name="model" class="select mt-1" style="max-width:300px;">
+      <option value="llama3.1:latest">llama3.1 (8B, 추천)</option>
+      <option value="llama3.2:latest">llama3.2 (3B, 빠름)</option>
+      <option value="glm-4.7-flash:latest">GLM 4.7 (한국어↑)</option>
+    </select>
+  </label>
+
+  <div class="flex flex-wrap gap-2 mt-2">
+    <button class="btn btn-accent text-lg flex items-center gap-2" formaction="/ai-classify/analyze"
+            {% if not ollama_ok %}title="Ollama 미실행 — 수동 매핑만 가능"{% endif %}>
+      🤖 단일 시트 분석 (확인 후 적용)
+    </button>
+    <button type="button" class="btn btn-primary text-lg flex items-center gap-2" onclick="startMultiSheet(event)">
+      🚀 전체 시트 자동 처리 (통합 마스터용)
+    </button>
+  </div>
+  <p class="text-xs text-slate-500 mt-2">
+    💡 <b>전체 시트 자동 처리</b>는 통합 마스터 (FACT_매출 + FACT_매입 + DIM_거래처 등 여러 시트가 있는 파일)를 위한 모드입니다.
+    각 시트를 LLM이 판단해 신뢰도 70% 이상이면 자동 적재합니다.
+  </p>
+</form>
+
+<!-- 멀티시트 자동 처리 — 진행 + 결과 -->
+<div id="multi-progress" class="hidden card mt-4"
+     style="background: linear-gradient(135deg, #FAF5FF 0%, #FFF7ED 100%); border: 2px solid #C4B5FD;">
+  <div class="flex items-center gap-4">
+    <div class="relative" style="width:56px;height:56px;">
+      <div class="ai-spinner-ring"></div>
+      <div class="ai-brain-pulse absolute inset-0 flex items-center justify-center text-3xl">🧠</div>
+    </div>
+    <div class="flex-grow">
+      <div class="flex items-center justify-between mb-1">
+        <div class="font-bold text-purple-800" id="multi-stage">🚀 파일 파싱 중</div>
+        <div class="text-2xl font-bold" style="color: var(--inviz-orange);"><span id="multi-pct">0</span>%</div>
+      </div>
+      <div class="w-full bg-white rounded-full h-3 overflow-hidden shadow-inner">
+        <div id="multi-bar" class="h-3 transition-all duration-500"
+             style="width:0%; background: linear-gradient(90deg, #7C3AED 0%, #F97316 100%);"></div>
+      </div>
+      <div class="text-xs text-slate-600 mt-2" id="multi-detail">시트별 LLM 도메인 분석 시작...</div>
+    </div>
+  </div>
+</div>
+
+<div id="multi-result" class="hidden card mt-4">
+  <h3 class="font-bold text-lg mb-3" style="color: var(--inviz-purple);">🎯 시트별 분석 결과</h3>
+  <div id="multi-result-body"></div>
+</div>
+
+<style>
+  .ai-spinner-ring { position: absolute; inset: 0; border: 4px solid #E9D5FF; border-top-color: #7C3AED; border-right-color: #F97316; border-radius: 50%; animation: ai-spin 1.2s linear infinite; }
+  @keyframes ai-spin { to { transform: rotate(360deg); } }
+  .ai-brain-pulse { animation: brain-pulse 1.8s ease-in-out infinite; }
+  @keyframes brain-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); filter: drop-shadow(0 0 12px rgba(124,58,237,0.8)); } }
+</style>
+
+<script>
+let multiTimer = null;
+async function startMultiSheet(ev) {
+  ev.preventDefault();
+  const form = ev.target.closest('form');
+  const file = form.querySelector('input[name="file"]').files[0];
+  if (!file) { alert('파일을 선택하세요.'); return; }
+  if (!confirm(`${file.name} 의 모든 시트를 AI가 분석해서 자동으로 매출·매입·급여·비용에 적재합니다. 진행할까요?`)) return;
+
+  document.getElementById('multi-progress').classList.remove('hidden');
+  document.getElementById('multi-result').classList.add('hidden');
+  document.getElementById('multi-stage').textContent = '🚀 파일 파싱 중';
+  document.getElementById('multi-pct').textContent = '0';
+  document.getElementById('multi-bar').style.width = '0%';
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('model', form.querySelector('select[name="model"]').value);
+  fd.append('auto_threshold', '0.7');
+  const r = await fetch('/ai-classify/multi-sheet/start', {method: 'POST', body: fd});
+  const d = await r.json();
+  if (!d.run_id) { alert('시작 실패: ' + (d.error || JSON.stringify(d))); return; }
+  multiTimer = setInterval(() => pollMulti(d.run_id), 1500);
+}
+
+async function pollMulti(runId) {
+  try {
+    const r = await fetch('/ai-classify/multi-sheet/status?run_id=' + runId);
+    const d = await r.json();
+    document.getElementById('multi-stage').textContent = d.stage || '진행 중';
+    const pct = Math.round(d.progress || 0);
+    document.getElementById('multi-pct').textContent = pct;
+    document.getElementById('multi-bar').style.width = pct + '%';
+    let detail = `시트 ${d.sheets_done || 0} / ${d.sheets_total || '?'}`;
+    if (d.applied_total) {
+      const t = d.applied_total;
+      const sum = (t.sale||0)+(t.purchase||0)+(t.payroll||0)+(t.expense||0);
+      if (sum > 0) detail += ` · 적재 ${sum.toLocaleString()}건`;
+    }
+    document.getElementById('multi-detail').textContent = detail;
+    if (d.finished_at) {
+      clearInterval(multiTimer); multiTimer = null;
+      renderMultiResult(d);
+    }
+  } catch (e) { console.error(e); }
+}
+
+function renderMultiResult(d) {
+  const body = document.getElementById('multi-result-body');
+  const results = d.results || [];
+  const t = d.applied_total || {};
+  const totalApplied = (t.sale||0)+(t.purchase||0)+(t.payroll||0)+(t.expense||0);
+
+  let html = `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+      <div class="bg-purple-50 rounded p-2 border border-purple-200 text-center">
+        <div class="text-xs text-slate-500">💰 매출 적재</div>
+        <div class="text-xl font-bold text-purple-800">${(t.sale||0).toLocaleString()}</div>
+      </div>
+      <div class="bg-orange-50 rounded p-2 border border-orange-200 text-center">
+        <div class="text-xs text-slate-500">📦 매입 적재</div>
+        <div class="text-xl font-bold text-orange-800">${(t.purchase||0).toLocaleString()}</div>
+      </div>
+      <div class="bg-purple-50 rounded p-2 border border-purple-200 text-center">
+        <div class="text-xs text-slate-500">👥 급여 적재</div>
+        <div class="text-xl font-bold text-purple-800">${(t.payroll||0).toLocaleString()}</div>
+      </div>
+      <div class="bg-orange-50 rounded p-2 border border-orange-200 text-center">
+        <div class="text-xs text-slate-500">💸 비용 적재</div>
+        <div class="text-xl font-bold text-orange-800">${(t.expense||0).toLocaleString()}</div>
+      </div>
+    </div>
+    <div class="text-sm font-semibold mb-2">총 ${results.length}개 시트 분석 · ${totalApplied.toLocaleString()}건 자동 적재</div>
+    <div class="overflow-x-auto">
+    <table class="table text-sm">
+      <thead><tr><th>시트</th><th>판단 도메인</th><th class="num">신뢰도</th><th class="num">행수</th><th class="num">적재</th><th>비고</th></tr></thead>
+      <tbody>
+  `;
+  for (const r of results) {
+    const conf = ((r.confidence || 0) * 100).toFixed(0) + '%';
+    const confColor = (r.confidence || 0) >= 0.7 ? 'text-green-700' : (r.confidence || 0) >= 0.4 ? 'text-amber-700' : 'text-red-700';
+    const dom = r.domain === 'unknown' ? '❓ 미분류' : `${r.icon || ''} ${r.label || r.domain}`;
+    const skipped = r.skipped ? `<span class="text-xs text-amber-700">⊘ ${r.skipped}</span>` : '';
+    const applied = r.applied > 0 ? `<b class="text-green-700">${r.applied}건 ✓</b>` : '<span class="text-slate-400">—</span>';
+    html += `<tr>
+      <td class="font-medium">${r.sheet}</td>
+      <td>${dom}</td>
+      <td class="num ${confColor}">${conf}</td>
+      <td class="num">${(r.row_count || 0).toLocaleString()}</td>
+      <td class="num">${applied}</td>
+      <td class="text-xs">${skipped}${r.reason ? `<div class="text-slate-500 text-xs mt-1">${r.reason.substring(0,80)}${r.reason.length > 80 ? '...' : ''}</div>` : ''}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  if (d.applied_errors && d.applied_errors.length) {
+    html += `<div class="mt-3 bg-amber-50 border border-amber-300 rounded p-2 text-xs">
+      ⚠️ 일부 행 적재 오류: ${d.applied_errors.length}개 시트에 오류 행 있음 (상세는 self-dev 페이지 참고)
+    </div>`;
+  }
+  body.innerHTML = html;
+  document.getElementById('multi-result').classList.remove('hidden');
+}
+</script>
+{% endif %}
+
+{% if analysis %}
+<!-- 2단계: AI 분석 결과 + 매핑 수정 + 미리보기 -->
+{% set domain = analysis.domain %}
+{% set schema = schemas.get(domain) %}
+{% set conf = (analysis.confidence or 0) * 100 %}
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-purple);">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="font-semibold text-lg flex items-center gap-2" style="color: var(--inviz-purple);">
+      🤖 AI 분석 결과
+      {% if schema %}
+        <span class="badge badge-{{ schema.color }} text-sm" style="font-size:13px; padding:4px 10px;">
+          {{ schema.icon }} {{ schema.label }}
+        </span>
+      {% else %}
+        <span class="badge badge-red">미분류</span>
+      {% endif %}
+    </h3>
+    <div class="text-sm">
+      신뢰도: <span class="font-bold {% if conf >= 70 %}text-green-700{% elif conf >= 40 %}text-amber-700{% else %}text-red-600{% endif %}">{{ "%.0f"|format(conf) }}%</span>
+    </div>
+  </div>
+  <div class="text-sm text-slate-700 mb-3 bg-slate-50 px-3 py-2 rounded">
+    💡 {{ analysis.reason or '판단 이유 없음' }}
+  </div>
+  <div class="text-xs text-slate-500">
+    시트: <b>{{ selected_sheet }}</b> · 전체 {{ total_rows }}행 · 헤더 {{ headers|length }}개
+  </div>
+</div>
+
+<!-- 매핑 수정 폼 + 적용 -->
+<form method="post" action="/ai-classify/apply" id="apply-form" class="card mb-4">
+  <input type="hidden" name="payload" id="payload-input" value='{{ encoded | e }}'>
+
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">📋 도메인 · 컬럼 매핑 (확인/수정)</h3>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+    <div>
+      <label class="text-xs text-slate-500 block mb-1">도메인 (등록 대상)</label>
+      <div class="flex gap-2">
+        <select id="domain-sel" class="select flex-grow" onchange="onDomainChange()">
+          {% for key, s in schemas.items() %}
+          <option value="{{ key }}" {% if key == domain %}selected{% endif %}>{{ s.icon }} {{ s.label }}</option>
+          {% endfor %}
+          <option value="unknown" {% if domain == 'unknown' %}selected{% endif %}>❓ 미분류</option>
+        </select>
+        <button type="button" id="auto-domain-btn" onclick="autoSuggestDomain()"
+                class="btn btn-primary whitespace-nowrap">🤖 AI 자동 판단</button>
+      </div>
+      <div id="auto-domain-status" class="text-xs mt-1 hidden"></div>
+    </div>
+  </div>
+
+  <div id="mapping-grid" class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+    <!-- 자바스크립트로 동적 렌더 -->
+  </div>
+
+  <div class="flex gap-2 pt-3 border-t">
+    <button type="submit" class="btn btn-accent text-lg px-8" onclick="return prepareApply()">
+      ✓ 적용 ({{ total_rows }}건)
+    </button>
+    <a href="/ai-classify" class="btn btn-secondary">다시 업로드</a>
+  </div>
+</form>
+
+<!-- 데이터 미리보기 -->
+<div class="card">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">
+    📊 원본 데이터 미리보기 ({{ preview|length }}/{{ total_rows }}건)
+  </h3>
+  <div class="overflow-x-auto max-h-96 overflow-y-auto">
+    <table class="table text-xs">
+      <thead class="sticky top-0">
+        <tr>
+          <th class="w-10">#</th>
+          {% for h in headers %}<th>{{ h }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in preview %}
+        <tr>
+          <td class="text-slate-400">{{ r._row_no }}</td>
+          {% for h in headers %}<td class="whitespace-nowrap">{{ r[h] if r[h] is not none else '' }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  const ALL_SCHEMAS = {{ schemas | tojson }};
+  const HEADERS = {{ headers | tojson }};
+  const AI_MAPPING = {{ analysis.column_mapping | tojson if analysis.column_mapping else '{}' | safe }};
+  const FULL_DATA = JSON.parse(document.getElementById('payload-input').value);
+
+  function renderMapping(domain) {
+    const grid = document.getElementById('mapping-grid');
+    if (domain === 'unknown' || !ALL_SCHEMAS[domain]) {
+      grid.innerHTML = '<div class="text-sm text-slate-400 col-span-2 text-center py-4">도메인을 선택하면 매핑이 표시됩니다.</div>';
+      return;
+    }
+    const fields = ALL_SCHEMAS[domain].fields;
+    let html = '';
+    for (const [fk, fmeta] of Object.entries(fields)) {
+      const current = (FULL_DATA.mapping && FULL_DATA.mapping[fk]) || AI_MAPPING[fk] || '';
+      const reqBadge = fmeta.required
+        ? '<span class="text-red-600 text-xs ml-1">*</span>'
+        : '';
+      html += `<label class="flex items-center gap-2 text-sm">
+        <span class="w-32 text-xs text-slate-600 flex-shrink-0">${fmeta.label}${reqBadge}</span>
+        <select class="select" data-field="${fk}" style="font-size:12px;">
+          <option value="">(매핑 안 함)</option>
+          ${HEADERS.map(h => `<option value="${h}" ${h === current ? 'selected' : ''}>${h}</option>`).join('')}
+        </select>
+      </label>`;
+    }
+    grid.innerHTML = html;
+  }
+
+  function onDomainChange() {
+    const d = document.getElementById('domain-sel').value;
+    renderMapping(d);
+  }
+
+  function prepareApply() {
+    const domain = document.getElementById('domain-sel').value;
+    if (domain === 'unknown') {
+      alert('도메인을 선택해 주세요 (매출/매입/급여/비용)');
+      return false;
+    }
+    // 매핑 수집
+    const mapping = {};
+    document.querySelectorAll('#mapping-grid select[data-field]').forEach(sel => {
+      mapping[sel.dataset.field] = sel.value;
+    });
+    // 필수 필드 검증
+    const fields = ALL_SCHEMAS[domain].fields;
+    const missing = [];
+    for (const [fk, fmeta] of Object.entries(fields)) {
+      if (fmeta.required && !mapping[fk]) missing.push(fmeta.label);
+    }
+    if (missing.length) {
+      alert('필수 매핑 누락: ' + missing.join(', '));
+      return false;
+    }
+    // payload 업데이트
+    FULL_DATA.domain = domain;
+    FULL_DATA.mapping = mapping;
+    document.getElementById('payload-input').value = JSON.stringify(FULL_DATA);
+    return confirm(`${FULL_DATA.rows.length}건을 ${ALL_SCHEMAS[domain].label}에 적용합니다. 진행?`);
+  }
+
+  // ===== AI 자동 도메인 판단 =====
+  async function autoSuggestDomain(silent) {
+    const btn = document.getElementById('auto-domain-btn');
+    const st = document.getElementById('auto-domain-status');
+    if (btn) { btn.disabled = true; btn.textContent = '🧠 분석 중...'; }
+    st.classList.remove('hidden');
+    st.innerHTML = '<span class="text-purple-700">🤖 LLM이 헤더와 샘플 데이터를 분석하고 있습니다...</span>';
+    try {
+      const modelSel = document.querySelector('select[name="model"]');
+      const model = modelSel ? modelSel.value : '';
+      const fd = new FormData();
+      fd.append('payload', JSON.stringify(FULL_DATA));
+      if (model) fd.append('model', model);
+      const r = await fetch('/ai-classify/suggest-domain', {method: 'POST', body: fd});
+      const d = await r.json();
+      if (!d.ok) {
+        st.innerHTML = '<span class="text-red-700">❌ ' + (d.error || '실패') + '</span>';
+        return;
+      }
+      // 도메인 자동 선택
+      const sel = document.getElementById('domain-sel');
+      sel.value = d.domain || 'unknown';
+      // 매핑 자동 적용
+      Object.assign(FULL_DATA.mapping || (FULL_DATA.mapping = {}), d.mapping || {});
+      Object.assign(AI_MAPPING, d.mapping || {});
+      renderMapping(sel.value);
+
+      const conf = (d.confidence || 0);
+      const color = conf >= 0.7 ? 'text-green-700' : (conf >= 0.4 ? 'text-amber-700' : 'text-slate-500');
+      const icon = conf >= 0.7 ? '✅' : (conf >= 0.4 ? '⚠️' : 'ℹ️');
+      st.innerHTML = `<span class="${color}">${icon} ${d.icon || ''} <b>${d.label}</b>로 판단 — 신뢰도 ${(conf*100).toFixed(0)}%${d.reason ? ' · ' + d.reason : ''}</span>`;
+    } catch (e) {
+      st.innerHTML = '<span class="text-red-700">❌ 네트워크 오류: ' + e + '</span>';
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '🤖 AI 자동 판단'; }
+    }
+  }
+
+  // 초기 렌더
+  renderMapping(document.getElementById('domain-sel').value);
+
+  // 미분류 상태로 진입하면 자동 1회 호출
+  if (document.getElementById('domain-sel').value === 'unknown') {
+    setTimeout(() => autoSuggestDomain(true), 200);
+  }
+</script>
+{% endif %}
+{% endblock %}

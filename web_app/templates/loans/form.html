@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}차입금 수정{% else %}차입금 신규{% endif %}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4 text-slate-800">{% if row %}차입금 수정{% else %}차입금 신규 등록{% endif %}</h1>
+<form method="post" action="{% if row %}/loans/{{ row.id }}{% else %}/loans{% endif %}" class="card max-w-4xl">
+  <div class="grid grid-cols-3 gap-4">
+    <div>
+      <label class="text-sm font-medium text-slate-700">차입ID *</label>
+      {% if row %}<input type="text" class="input bg-slate-100" readonly value="{{ row.id }}">
+      {% else %}<input type="text" name="id" class="input" required value="{{ next_id }}">{% endif %}
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">구분</label>
+      <select name="kind" class="select">
+        {% set k = row.kind if row else '' %}
+        {% for c in ['은행', '개인', '사채', '개인(임원)'] %}<option value="{{ c }}" {% if k == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">장단기</label>
+      <select name="term" class="select">
+        {% set t = row.term if row else '' %}
+        {% for c in ['단기', '장기'] %}<option value="{{ c }}" {% if t == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">금융기관/차주 *</label>
+      <input type="text" name="institution" class="input" required value="{{ row.institution if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">계좌번호</label>
+      <input type="text" name="account_no" class="input" value="{{ row.account_no if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">약정한도</label>
+      <input type="number" name="limit_amount" class="input num" value="{{ row.limit_amount|round|int if row and row.limit_amount else 0 }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">최초차입액</label>
+      <input type="number" name="initial_amount" class="input num" value="{{ row.initial_amount|round|int if row and row.initial_amount else 0 }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">현재잔액</label>
+      <input type="number" name="current_balance" class="input num" value="{{ row.current_balance|round|int if row and row.current_balance else 0 }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">차입종류</label>
+      <input type="text" name="loan_type" class="input" value="{{ row.loan_type if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">이자율(%)</label>
+      <input type="number" step="0.01" name="interest_rate" class="input num" value="{{ row.interest_rate if row and row.interest_rate else 0 }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">상환방법</label>
+      <input type="text" name="repayment_method" class="input" value="{{ row.repayment_method if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">차입일</label>
+      <input type="date" name="start_date" class="input" value="{{ row.start_date|date if row and row.start_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">만기일</label>
+      <input type="date" name="end_date" class="input" value="{{ row.end_date|date if row and row.end_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">상태</label>
+      <select name="status" class="select">
+        {% set s = row.status if row else '활성' %}
+        {% for c in ['활성', '만료', '해지'] %}<option value="{{ c }}" {% if s == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">담보</label>
+      <input type="text" name="collateral" class="input" value="{{ row.collateral if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">담보설정액</label>
+      <input type="number" name="collateral_amount" class="input num" value="{{ row.collateral_amount|round|int if row and row.collateral_amount else 0 }}">
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">대표이사 지급보증</label>
+      <input type="text" name="ceo_guarantee" class="input" value="{{ row.ceo_guarantee if row else '' }}">
+    </div>
+    <div class="col-span-3">
+      <label class="text-sm font-medium text-slate-700">비고</label>
+      <textarea name="note" class="textarea" rows="2">{{ row.note if row else '' }}</textarea>
+    </div>
+  </div>
+  <div class="flex gap-2 mt-6">
+    <button class="btn btn-primary">{% if row %}수정{% else %}등록{% endif %}</button>
+    <a href="/loans" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+{% endblock %}

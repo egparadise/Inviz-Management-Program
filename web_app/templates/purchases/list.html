@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}매입 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">매입 트랜잭션</h1>
+  <div class="flex gap-2">
+    <a href="/purchases/import-xlsx" class="btn btn-secondary">📊 Excel 업로드</a>
+    <a href="/purchases/import-csv" class="btn btn-secondary">📥 CSV 업로드</a>
+    {% if total_count > 0 %}
+    <a href="/purchases/export.xlsx?{{ qs }}" class="btn btn-secondary">📊 Excel</a>
+    <a href="/purchases/export.pdf?{{ qs }}" class="btn btn-secondary" target="_blank">📄 PDF</a>
+    {% endif %}
+    <a href="/purchases/new" class="btn btn-primary">+ 신규 매입</a>
+  </div>
+</div>
+
+{% if request.query_params.get('imported') %}
+<div class="card mb-4 bg-green-50 border border-green-200">
+  <div class="text-sm text-green-900">
+    <strong>✓ CSV로 {{ request.query_params.get('imported') }}건의 매입이 등록되었습니다.</strong>
+  </div>
+</div>
+{% endif %}
+{% if request.query_params.get('imported_xlsx') %}
+<div class="card mb-4 bg-green-50 border border-green-200">
+  <div class="text-sm text-green-900">
+    <strong>✓ Excel로 {{ request.query_params.get('imported_xlsx') }}건의 매입이 등록되었습니다.</strong>
+  </div>
+</div>
+{% endif %}
+
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-1 md:grid-cols-7 gap-3">
+    <div class="md:col-span-2">
+      <label class="text-xs text-slate-500">기간 (시작 ~ 종료)</label>
+      <div class="flex gap-2">
+        <input type="date" name="from_date" value="{{ filter.from_date }}" class="input">
+        <span class="self-center text-slate-400">~</span>
+        <input type="date" name="to_date" value="{{ filter.to_date }}" class="input">
+      </div>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">연도</label>
+      <select name="year" class="select">
+        <option value="">전체</option>
+        {% for y in years %}<option value="{{ y }}" {% if filter.year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">월</label>
+      <select name="month" class="select">
+        <option value="">전체</option>
+        {% for m in range(1, 13) %}<option value="{{ m }}" {% if filter.month == m %}selected{% endif %}>{{ m }}월</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">거래처</label>
+      <input type="text" name="party" value="{{ filter.party }}" class="input">
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">제품</label>
+      <select name="product" class="select">
+        <option value="">전체</option>
+        {% for p in products %}<option value="{{ p.code }}" {% if filter.product == p.code %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">검색</label>
+      <input type="text" name="q" value="{{ filter.q }}" class="input">
+    </div>
+    <div class="md:col-span-7 flex gap-2 justify-end pt-1 border-t">
+      <button class="btn btn-primary px-6">확인</button>
+      <a href="/purchases" class="btn btn-secondary">초기화</a>
+      <button type="button" class="btn btn-secondary" onclick="quickRange('this_month')">이번 달</button>
+      <button type="button" class="btn btn-secondary" onclick="quickRange('last_month')">지난 달</button>
+      <button type="button" class="btn btn-secondary" onclick="quickRange('this_quarter')">이번 분기</button>
+      <button type="button" class="btn btn-secondary" onclick="quickRange('ytd')">올해 누계</button>
+    </div>
+  </form>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">건수</div>
+    <div class="text-2xl font-bold text-slate-800 mt-1">{{ total_count|money }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">공급가액 합계</div>
+    <div class="text-2xl font-bold text-slate-800 mt-1">{{ sum_supply|money }}<span class="text-sm font-normal text-slate-400 ml-1">원</span></div>
+  </div>
+  <div class="kpi-card" style="border-color: var(--inviz-orange);">
+    <div class="text-xs text-slate-500">부가세 합계</div>
+    <div class="text-2xl font-bold text-amber-700 mt-1">{{ sum_vat|money }}<span class="text-sm font-normal text-slate-400 ml-1">원</span></div>
+  </div>
+  <div class="kpi-card" style="border-color: var(--inviz-orange);">
+    <div class="text-xs text-slate-500">총 합계</div>
+    <div class="text-2xl font-bold mt-1" style="color: var(--inviz-purple);">{{ sum_total|money }}<span class="text-sm font-normal text-slate-400 ml-1">원</span></div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">거래처별 합계 (TOP 10)</h3>
+    <table class="table">
+      <thead><tr><th class="w-8">#</th><th>거래처</th><th class="num">건수</th><th class="num">공급가액</th></tr></thead>
+      <tbody>
+        {% for name, cnt, supply in party_top %}
+        <tr>
+          <td class="text-slate-400">{{ loop.index }}</td>
+          <td>{{ name }}</td>
+          <td class="num text-slate-500">{{ cnt }}</td>
+          <td class="num font-semibold">{{ supply|money }}</td>
+        </tr>
+        {% endfor %}
+        {% if not party_top %}<tr><td colspan="4" class="text-center text-slate-400 py-4">데이터 없음</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">제품별 합계</h3>
+    <table class="table">
+      <thead><tr><th>제품</th><th class="num">건수</th><th class="num">공급가액</th><th class="num">비중</th></tr></thead>
+      <tbody>
+        {% set total_p = prod_sum | map(attribute=3) | sum %}
+        {% for code, name, cnt, supply in prod_sum %}
+        <tr>
+          <td><span class="badge badge-purple">{{ code }}</span> {{ name or '기타' }}</td>
+          <td class="num text-slate-500">{{ cnt }}</td>
+          <td class="num font-semibold">{{ supply|money }}</td>
+          <td class="num text-slate-500">{% if total_p %}{{ (supply/total_p*100)|pct }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+        {% if not prod_sum %}<tr><td colspan="4" class="text-center text-slate-400 py-4">데이터 없음</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="font-semibold text-slate-700">거래 명세 ({{ total_count|money }}건)</h3>
+    <div class="text-xs text-slate-500">페이지 {{ page }} / {{ total_pages or 1 }}</div>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr><th>일자</th><th>거래처</th><th>제품</th><th>품명</th><th>매입유형</th>
+            <th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="whitespace-nowrap">{{ r.txn_date|date }}</td>
+          <td>{{ r.party_name }}</td>
+          <td><span class="badge badge-purple">{{ r.product_code }}</span> {{ r.product_name }}</td>
+          <td class="text-xs text-slate-600">{{ r.item_raw or '' }}</td>
+          <td><span class="badge badge-gray">{{ r.purchase_type or '기타' }}</span></td>
+          <td class="num">{{ r.supply|money }}</td>
+          <td class="num text-slate-500">{{ r.vat|money }}</td>
+          <td class="num font-semibold">{{ r.total|money }}</td>
+          <td>
+            <a href="/purchases/{{ r.id }}/edit" class="text-purple-700 text-xs font-semibold">수정</a>
+            <form method="post" action="/purchases/{{ r.id }}/delete" class="inline" onsubmit="return confirm('삭제?')">
+              <button class="text-red-600 text-xs ml-2">삭제</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% if rows %}
+      <tfoot>
+        <tr class="total-row">
+          <td colspan="5">합계 (현재 페이지)</td>
+          <td class="num">{{ (rows | sum(attribute='supply'))|money }}</td>
+          <td class="num">{{ (rows | sum(attribute='vat'))|money }}</td>
+          <td class="num">{{ (rows | sum(attribute='total'))|money }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+  <div class="flex justify-center gap-2 mt-4">
+    {% if page > 1 %}<a href="?page={{ page-1 }}&{{ qs }}" class="btn btn-secondary">이전</a>{% endif %}
+    <span class="px-3 py-2 text-sm text-slate-600">{{ page }} / {{ total_pages or 1 }}</span>
+    {% if page < total_pages %}<a href="?page={{ page+1 }}&{{ qs }}" class="btn btn-secondary">다음</a>{% endif %}
+  </div>
+</div>
+
+<script>
+function quickRange(kind) {
+  const now = new Date();
+  let from, to;
+  const fmt = d => d.toISOString().slice(0,10);
+  if (kind === 'this_month') { from = new Date(now.getFullYear(), now.getMonth(), 1); to = new Date(now.getFullYear(), now.getMonth()+1, 0); }
+  else if (kind === 'last_month') { from = new Date(now.getFullYear(), now.getMonth()-1, 1); to = new Date(now.getFullYear(), now.getMonth(), 0); }
+  else if (kind === 'this_quarter') { const q = Math.floor(now.getMonth()/3); from = new Date(now.getFullYear(), q*3, 1); to = new Date(now.getFullYear(), q*3+3, 0); }
+  else if (kind === 'ytd') { from = new Date(now.getFullYear(), 0, 1); to = now; }
+  document.querySelector('input[name=from_date]').value = fmt(from);
+  document.querySelector('input[name=to_date]').value = fmt(to);
+  document.querySelector('select[name=year]').value = '';
+  document.querySelector('select[name=month]').value = '';
+}
+</script>
+{% endblock %}

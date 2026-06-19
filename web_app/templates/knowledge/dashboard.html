@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}AI 지식베이스 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">AI 학습 · 자가학습
+    <a href="/settings" class="ai-badge {% if not ai_ready() %}off{% endif %}" title="RAG 답변에 사용되는 AI 모델 — 클릭하면 설정"><span class="dot"></span>🧠 {{ ai_label() }}</a>
+    <span class="ai-badge" title="자기학습은 오직 오픈소스 모델만 사용"><span class="dot"></span>📚 학습: {{ setting('learning_model','llama3.1:latest') }}</span>
+  </h1>
+  <div class="flex gap-2">
+    <form method="post" action="/knowledge/embed-pending" class="inline">
+      <button class="btn btn-secondary">📌 미임베딩만 벡터화</button>
+    </form>
+    <form method="post" action="/knowledge/reindex" class="inline">
+      <button class="btn btn-primary" onclick="return confirm('전체 데이터를 다시 인덱싱합니다 (수 분 소요). 진행?')">🔄 전체 재인덱싱</button>
+    </form>
+  </div>
+</div>
+
+{% if request.query_params.get('started') %}
+<div class="card mb-4 bg-blue-50 border border-blue-200 text-sm text-blue-900">
+  <strong>재인덱싱 시작.</strong> 백그라운드로 실행되며 1~2분 소요됩니다. 페이지를 새로고침해서 진행 상황을 확인하세요.
+</div>
+{% endif %}
+{% if request.query_params.get('embedded') %}
+<div class="card mb-4 bg-green-50 border border-green-200 text-sm text-green-900">
+  <strong>미임베딩 청크 벡터화 시작.</strong> 잠시 후 새로고침해 주세요.
+</div>
+{% endif %}
+
+<!-- KPI -->
+<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">지식 청크</div>
+    <div class="text-2xl font-bold text-slate-800 mt-1">{{ total_chunks|money }}</div>
+    <div class="text-xs text-slate-400 mt-1">SQLite 메타데이터</div>
+  </div>
+  <div class="kpi-card" style="border-color: var(--inviz-orange);">
+    <div class="text-xs text-slate-500">벡터 DB (지식)</div>
+    <div class="text-2xl font-bold text-amber-700 mt-1">{{ vstore.kb_count|money }}</div>
+    <div class="text-xs text-slate-400 mt-1">ChromaDB · 768차원</div>
+  </div>
+  <div class="kpi-card" style="border-color: #10B981;">
+    <div class="text-xs text-slate-500">학습된 대화</div>
+    <div class="text-2xl font-bold text-green-700 mt-1">{{ vstore.conv_count|money }}</div>
+    <div class="text-xs text-slate-400 mt-1">👍 받은 Q&A</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">챗 이력</div>
+    <div class="text-2xl font-bold text-slate-800 mt-1">{{ chat_total|money }}</div>
+    <div class="text-xs text-slate-400 mt-1">👍 {{ chat_good }} · 👎 {{ chat_bad }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">입력 토큰 (30일)</div>
+    <div class="text-2xl font-bold text-slate-800 mt-1">{{ tokens_input_30d|money }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">출력 토큰 (30일)</div>
+    <div class="text-2xl font-bold text-slate-800 mt-1">{{ tokens_output_30d|money }}</div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <!-- 청크 종류별 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">청크 종류별</h3>
+    <table class="table">
+      <thead><tr><th>종류</th><th class="num">청크 수</th><th class="num">총 토큰</th></tr></thead>
+      <tbody>
+        {% for t, c, tok in by_type %}
+        <tr>
+          <td><span class="badge badge-purple">{{ t }}</span></td>
+          <td class="num font-semibold">{{ c|money }}</td>
+          <td class="num text-slate-500">{{ tok|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <!-- 임베딩 상태 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">임베딩 상태</h3>
+    <table class="table">
+      <thead><tr><th>상태</th><th class="num">개수</th></tr></thead>
+      <tbody>
+        {% for s, c in by_status %}
+        <tr>
+          <td>
+            {% if s == 'embedded' %}<span class="badge badge-green">✓ 임베딩 완료</span>
+            {% elif s == 'pending' %}<span class="badge badge-orange">⏳ 대기 중</span>
+            {% elif s == 'failed' %}<span class="badge badge-red">⚠ 실패</span>
+            {% else %}<span class="badge badge-gray">{{ s }}</span>{% endif %}
+          </td>
+          <td class="num font-semibold">{{ c|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- RAG 검색 — 챗 패널 통합 -->
+<div class="card mb-6" style="border-left: 4px solid var(--inviz-orange);">
+  <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">🤖 AI 검색 / RAG 테스트</h3>
+  <p class="text-sm text-slate-600 mb-3">
+    AI 검색은 상단의 <b>🤖 AI 검색</b> 바 또는 우측 <b>💬 채팅</b> 패널에서 통합 사용합니다.
+    패널의 <b>모드 토글</b>로 자동 / 🔍 RAG 검색 / 🧪 검색만 (LLM 없음) 을 선택할 수 있습니다.
+  </p>
+  <div class="flex gap-2">
+    <input type="text" id="kbTestInput" class="input flex-1" placeholder="예: 써밋영상 매출, 곧 만료되는 인증서, 인비즈 주요 제품"
+           onkeypress="if(event.key==='Enter') openInChat()">
+    <button onclick="openInChat()" class="btn btn-primary">🧪 검색만 (벡터DB)</button>
+    <button onclick="openInChatRag()" class="btn btn-accent">🔍 RAG + AI 답변</button>
+  </div>
+  <div class="text-xs text-slate-400 mt-2">
+    검색은 우측 슬라이드 패널에서 결과로 표시됩니다 (LLM 호출 시 토큰별 스트리밍).
+  </div>
+</div>
+
+<script>
+function openInChat() {
+  const q = document.getElementById('kbTestInput').value.trim();
+  if (!q) return;
+  // 검색만 모드
+  document.querySelector('input[name=chatMode][value=search]').checked = true;
+  document.getElementById('chatPanelInput').value = q;
+  openChatPanel();
+  submitChat(null, true);
+}
+function openInChatRag() {
+  const q = document.getElementById('kbTestInput').value.trim();
+  if (!q) return;
+  document.querySelector('input[name=chatMode][value=rag]').checked = true;
+  document.getElementById('chatPanelInput').value = q;
+  openChatPanel();
+  submitChat(null, true);
+}
+</script>
+
+<!-- 최근 챗 이력 -->
+<div class="card mb-6">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">최근 챗 이력 ({{ recent_chats|length }}건)</h3>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>시각</th><th>질문</th><th>의도</th><th>모드</th><th>피드백</th><th class="num">시간</th><th class="num">토큰</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in recent_chats %}
+        <tr>
+          <td class="text-xs whitespace-nowrap">{{ c.created_at.strftime('%m-%d %H:%M') if c.created_at else '' }}</td>
+          <td class="text-sm">{{ c.query[:80] }}{% if c.query|length > 80 %}…{% endif %}</td>
+          <td>
+            {% if c.intent %}<span class="badge badge-purple">{{ c.intent }}</span>{% endif %}
+          </td>
+          <td>
+            {% if c.fast_match == 'Y' %}<span class="badge badge-green">⚡ fast</span>{% endif %}
+            {% if c.rag_used == 'Y' %}<span class="badge badge-orange">🔍 RAG</span>{% endif %}
+          </td>
+          <td>
+            {% if c.user_feedback == 'good' %}<span class="text-green-600 font-bold">👍</span>
+            {% if c.is_indexed == 'Y' %}<span class="text-xs text-green-700">학습됨</span>{% endif %}
+            {% elif c.user_feedback == 'bad' %}<span class="text-red-600 font-bold">👎</span>
+            {% else %}<span class="text-slate-300">-</span>{% endif %}
+          </td>
+          <td class="num text-xs text-slate-500">{{ c.elapsed_ms }}ms</td>
+          <td class="num text-xs text-slate-500">
+            {% if c.tokens_input %}{{ c.tokens_input }}/{{ c.tokens_output or 0 }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if top_retrieved %}
+<div class="card mb-6">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">자주 검색되는 청크 TOP 10</h3>
+  <table class="table">
+    <thead><tr><th>제목</th><th>종류</th><th class="num">검색 횟수</th><th class="num">토큰</th></tr></thead>
+    <tbody>
+      {% for k in top_retrieved %}
+      <tr>
+        <td class="text-sm">{{ k.title or '-' }}</td>
+        <td><span class="badge badge-purple">{{ k.source_type }}</span></td>
+        <td class="num font-semibold">{{ k.retrieval_count }}</td>
+        <td class="num text-slate-500">{{ k.token_count or 0 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if pending_chunks %}
+<div class="card bg-amber-50">
+  <h3 class="font-semibold mb-3 text-amber-800">⏳ 임베딩 대기 중 ({{ pending_chunks|length }}건)</h3>
+  <ul class="text-sm space-y-1">
+    {% for p in pending_chunks %}
+    <li>• <span class="badge badge-purple">{{ p.source_type }}</span> {{ p.title }} <span class="text-xs text-slate-500">({{ p.token_count or 0 }} 토큰)</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}

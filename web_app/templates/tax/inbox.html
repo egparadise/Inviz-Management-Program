@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}매입계산서 수신확인 — 인비즈 경영관리{% endblock %}
+{% block content %}
+{% macro dot(on) %}<span style="width:9px;height:9px;border-radius:50%;display:inline-block;background:{{ '#10B981' if on else '#EF4444' }};"></span>{% endmacro %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">📥 매입계산서 수신확인</h1>
+  <div class="flex items-center gap-3 text-xs text-slate-500">
+    <span>{{ dot(mail_recv_ready) }} 메일수신</span>
+    <span>{{ dot(mail_send_ready) }} 메일발송</span>
+    <span>{{ dot(kakao_ready) }} 카카오</span>
+    <a href="/settings/integrations" class="btn btn-secondary text-xs px-2 py-1">⚙ 연동 설정</a>
+  </div>
+</div>
+
+{% set q = request.query_params %}
+{% if q.get('sync') %}<div class="card mb-3 {{ 'bg-green-50 border border-green-300 text-green-700' if q.get('sync')=='1' else 'bg-red-50 border border-red-300 text-red-700' }} text-sm">{{ q.get('msg') }}</div>{% endif %}
+{% if q.get('added') %}<div class="card mb-3 bg-green-50 border border-green-300 text-sm text-green-700">✅ 매입계산서가 등록되고 알림이 발송되었습니다.</div>{% endif %}
+{% if q.get('notify') %}<div class="card mb-3 bg-slate-50 border text-sm text-slate-700">알림 결과 — {{ q.get('notify') }}</div>{% endif %}
+{% if q.get('test') %}<div class="card mb-3 bg-slate-50 border text-sm text-slate-700">테스트 결과 — {{ q.get('test') }}</div>{% endif %}
+
+<!-- 수신 확인(메일 동기화) -->
+<div class="card mb-4" style="border-left:4px solid var(--inviz-purple);">
+  <div class="flex items-center justify-between flex-wrap gap-2">
+    <div>
+      <h3 class="font-semibold" style="color: var(--inviz-purple);">📨 홈택스 매입 세금계산서 수신 확인</h3>
+      <p class="text-xs text-slate-500 mt-1">설정된 메일함(IMAP)에서 홈택스가 보낸 세금계산서 안내 메일을 찾아 자동 등록하고, 이메일·카카오로 알립니다.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <form method="post" action="/tax/inbox/sync" class="flex items-end gap-2">
+        <label class="text-xs text-slate-500">최근
+          <input name="days" type="number" class="input" style="width:64px;display:inline-block;padding:4px 6px;" value="{{ imap_days }}"> 일</label>
+        <button class="btn btn-primary text-sm" {% if not mail_recv_ready %}title="설정에서 IMAP을 먼저 등록하세요"{% endif %}>📥 수신 확인</button>
+      </form>
+      <form method="post" action="/tax/test-notify"><button class="btn btn-secondary text-sm">🔔 알림 테스트</button></form>
+    </div>
+  </div>
+  {% if not mail_recv_ready %}<div class="text-xs text-amber-600 mt-2">⚠️ 메일 수신(IMAP)이 설정되지 않았습니다. <a href="/settings/integrations" class="underline">설정 ▸ 이메일</a>에서 등록하세요. 그 전에는 아래 <b>직접 입력</b>으로 관리할 수 있습니다.</div>{% endif %}
+</div>
+
+<!-- 직접 입력 -->
+<div class="card mb-4">
+  <h3 class="font-semibold mb-3 text-slate-700">✍ 매입계산서 직접 입력</h3>
+  <form method="post" action="/tax/inbox/add" class="grid grid-cols-1 md:grid-cols-4 gap-3">
+    <label class="block"><span class="text-xs text-slate-500">공급자(거래처)</span><input name="party_name" class="input mt-1" required></label>
+    <label class="block"><span class="text-xs text-slate-500">사업자번호</span><input name="supplier_corp_no" class="input mt-1" placeholder="000-00-00000"></label>
+    <label class="block"><span class="text-xs text-slate-500">작성일자</span><input name="write_date" type="date" class="input mt-1" value="{{ today }}"></label>
+    <label class="block"><span class="text-xs text-slate-500">품목</span><input name="item_desc" class="input mt-1"></label>
+    <label class="block"><span class="text-xs text-slate-500">공급가액(원)</span><input name="supply" type="number" class="input mt-1" required></label>
+    <label class="block"><span class="text-xs text-slate-500">세액(선택)</span><input name="vat" type="number" class="input mt-1" placeholder="자동(10%)"></label>
+    <div class="flex items-end md:col-span-2"><button class="btn btn-primary">➕ 등록 + 알림</button></div>
+  </form>
+</div>
+
+<!-- 수신 목록 -->
+<div class="card">
+  <h3 class="font-semibold mb-3 text-slate-700">수신 매입계산서 ({{ rows|length }}건)</h3>
+  {% if rows %}
+  <table class="table">
+    <thead><tr><th>수신/작성</th><th>공급자</th><th>품목</th><th class="num">공급가액</th><th class="num">세액</th><th class="num">합계</th><th>출처</th><th>알림</th><th></th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="text-xs">{{ (r.write_date or (r.issue_at.date() if r.issue_at else '')) }}</td>
+        <td class="font-semibold">{{ r.party_name or r.supplier_name or '-' }}<div class="text-xs text-slate-400">{{ r.supplier_corp_no or '' }}</div></td>
+        <td class="text-xs">{{ r.item_desc or '-' }}</td>
+        <td class="num">{{ r.supply|money }}</td>
+        <td class="num text-slate-500">{{ r.vat|money }}</td>
+        <td class="num font-semibold" style="color:var(--inviz-purple);">{{ r.total|money }}</td>
+        <td class="text-xs">{% if r.source=='email' %}📧 메일{% else %}✍ 수동{% endif %}</td>
+        <td>{% if r.notified=='Y' %}<span class="badge badge-green">발송</span>{% else %}<span class="badge badge-orange">미발송</span>{% endif %}</td>
+        <td class="whitespace-nowrap">
+          <form method="post" action="/tax/{{ r.id }}/notify" class="inline"><button class="text-purple-700 text-xs" title="알림 재발송">🔔</button></form>
+          <form method="post" action="/tax/{{ r.id }}/delete" class="inline" onsubmit="return confirm('삭제?')"><button class="text-red-600 text-xs ml-1">삭제</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="text-center text-slate-400 py-8">수신된 매입계산서가 없습니다. 위 <b>수신 확인</b> 또는 <b>직접 입력</b>으로 추가하세요.</div>{% endif %}
+</div>
+{% endblock %}

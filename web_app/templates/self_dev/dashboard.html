@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}자가발전 시스템 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">🛡 자가발전 시스템
+    <span class="ai-badge" title="자기학습은 오직 오픈소스 모델만 사용"><span class="dot"></span>📚 학습: {{ setting('learning_model','llama3.1:latest') }}</span>
+  </h1>
+  <form method="post" action="/self-dev/run-safe-sync" class="flex gap-2 items-center">
+    <label class="text-xs text-slate-600 flex items-center gap-1">
+      <input type="checkbox" name="auto_rollback" value="true" checked> 위험 변동 시 자동 롤백
+    </label>
+    <button class="btn btn-accent" onclick="return confirm('백업 → 동기화 → 검증 → AI 자가학습. 5~10분 소요. 진행?')">
+      🚀 안전 동기화 실행
+    </button>
+  </form>
+</div>
+
+{% if request.query_params.get('started') %}
+<div class="card mb-4 bg-blue-50 border border-blue-200 text-sm text-blue-900">
+  <strong>안전 동기화 시작.</strong> 백그라운드로 실행됩니다 (DB 백업 → 동기화 → 무결성 검증 → 미매핑 LLM 분류 → 벡터 DB 갱신). 잠시 후 새로고침으로 결과 확인.
+</div>
+{% endif %}
+
+<!-- 자가발전 학습 설정 요약 -->
+<div class="card mb-4" style="border-left:4px solid var(--inviz-orange);">
+  <div class="flex items-center justify-between flex-wrap gap-2">
+    <div class="text-sm">
+      <span class="font-semibold" style="color: var(--inviz-purple);">📂 학습 대상 폴더:</span>
+      <code class="text-xs">{{ setting('learning_folder','') or '기본 경영정보 폴더 (14.경영정보)' }}</code>
+      <span class="badge {% if setting('learning_include_subfolders','1') == '1' %}badge-green{% else %}badge-gray{% endif %} ml-2">
+        하위폴더 {% if setting('learning_include_subfolders','1') == '1' %}포함{% else %}제외{% endif %}
+      </span>
+    </div>
+    <div class="text-sm flex items-center gap-2">
+      <span class="ai-badge" title="자기학습 전용 — 오픈소스만"><span class="dot"></span>🧠 {{ setting('learning_model','llama3.1:latest') }} (오픈소스)</span>
+      <a href="/settings/selfdev" class="btn btn-secondary">⚙️ 학습 설정</a>
+    </div>
+  </div>
+  {% if setting('selfdev_paths','') %}
+  <div class="text-xs text-slate-500 mt-2">🗂 공유 경로: {{ setting('selfdev_paths','').replace('\n', ' · ') }}</div>
+  {% endif %}
+  <div class="text-xs text-slate-400 mt-1">🔒 자기학습은 보안을 위해 상용 API와 무관하게 <b>오직 오픈소스(Ollama) 모델</b>로만 수행됩니다.</div>
+</div>
+
+<!-- KPI -->
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  <div class="kpi-card" style="border-color: {% if integrity_score >= 95 %}#10B981{% elif integrity_score >= 80 %}var(--inviz-orange){% else %}#EF4444{% endif %};">
+    <div class="text-xs text-slate-500">무결성 점수</div>
+    <div class="text-3xl font-bold mt-1" style="color: {% if integrity_score >= 95 %}#059669{% elif integrity_score >= 80 %}#D97706{% else %}#DC2626{% endif %};">
+      {{ integrity_score }}<span class="text-base font-normal text-slate-400">/100</span>
+    </div>
+    <div class="text-xs text-slate-400 mt-1">총 {{ total_checks|money }}회 검증</div>
+  </div>
+  <div class="kpi-card" style="border-color: var(--inviz-orange);">
+    <div class="text-xs text-slate-500">LLM 분류 정확도</div>
+    <div class="text-2xl font-bold mt-1" style="color: var(--inviz-purple);">{{ classify_rate }}%</div>
+    <div class="text-xs text-slate-400 mt-1">자동 처리 {{ auto_processed }} / {{ total_reviews }}건</div>
+  </div>
+  <div class="kpi-card" style="border-color: #10B981;">
+    <div class="text-xs text-slate-500">학습된 대화</div>
+    <div class="text-2xl font-bold text-green-700 mt-1">{{ learned_chats }}</div>
+    <div class="text-xs text-slate-400 mt-1">👍 {{ good_feedback }} · 👎 {{ bad_feedback }}</div>
+  </div>
+  <div class="kpi-card" style="border-color: #EF4444;">
+    <div class="text-xs text-slate-500">의심 변화 (총)</div>
+    <div class="text-2xl font-bold {% if integrity_by_status.get('critical', 0) %}text-red-700{% else %}text-slate-700{% endif %} mt-1">
+      {{ integrity_by_status.get('warning', 0) + integrity_by_status.get('critical', 0) }}
+    </div>
+    <div class="text-xs text-slate-400 mt-1">
+      ⚠ {{ integrity_by_status.get('warning', 0) }} · 🛑 {{ integrity_by_status.get('critical', 0) }}
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">롤백된 동기화</div>
+    <div class="text-2xl font-bold mt-1 {% if integrity_by_status.get('rolled_back', 0) %}text-red-700{% endif %}">
+      {{ integrity_by_status.get('rolled_back', 0) }}
+    </div>
+    <div class="text-xs text-slate-400 mt-1">데이터 변조 방어</div>
+  </div>
+</div>
+
+<!-- 동작 흐름 안내 -->
+<div class="card mb-6" style="border-left: 4px solid var(--inviz-orange);">
+  <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">🔄 자가발전 워크플로</h3>
+  <div class="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
+    <div class="bg-purple-50 p-3 rounded">
+      <div class="font-bold text-base">1️⃣ 백업</div>
+      <div class="text-slate-600 mt-1">DB 스냅샷 자동 저장. 문제 시 즉시 복구 가능.</div>
+    </div>
+    <div class="bg-purple-50 p-3 rounded">
+      <div class="font-bold text-base">2️⃣ 동기화</div>
+      <div class="text-slate-600 mt-1">새 파일·변경 감지 후 도메인별 적재. 웹 입력 데이터 보존.</div>
+    </div>
+    <div class="bg-purple-50 p-3 rounded">
+      <div class="font-bold text-base">3️⃣ 무결성</div>
+      <div class="text-slate-600 mt-1">전후 KPI 비교. 위험 변동 자동 차단·롤백.</div>
+    </div>
+    <div class="bg-purple-50 p-3 rounded">
+      <div class="font-bold text-base">4️⃣ 🤖 LLM 분류</div>
+      <div class="text-slate-600 mt-1">미매핑 신규 파일 → AI가 도메인 추론. 신뢰도 ≥85% 자동.</div>
+    </div>
+    <div class="bg-purple-50 p-3 rounded">
+      <div class="font-bold text-base">5️⃣ 자가학습</div>
+      <div class="text-slate-600 mt-1">벡터 DB 자동 갱신. 좋은 답변 학습. 시스템 진화.</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <!-- 최근 의심 변화 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">⚠ 최근 의심 변화 ({{ recent_warns|length }})</h3>
+    {% if recent_warns %}
+    <table class="table">
+      <thead><tr><th>테이블</th><th>지표</th><th class="num">변화</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for w in recent_warns %}
+        <tr {% if w.status == 'critical' %}class="bg-red-50"{% elif w.status == 'warning' %}class="bg-amber-50"{% endif %}>
+          <td class="text-xs">{{ w.table_name }}</td>
+          <td class="text-xs">{{ w.metric }}</td>
+          <td class="num text-xs">
+            {{ w.before_value|round|int|money }} → {{ w.after_value|round|int|money }}
+            <div class="text-xs {% if w.delta_pct > 0 %}text-green-600{% else %}text-red-600{% endif %}">
+              {{ w.delta_pct|round(1) }}%
+            </div>
+          </td>
+          <td>
+            {% if w.status == 'critical' %}<span class="badge badge-red">🛑 위험</span>
+            {% elif w.status == 'warning' %}<span class="badge badge-orange">⚠ 경고</span>
+            {% elif w.status == 'rolled_back' %}<span class="badge badge-purple">↩ 롤백</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center text-slate-400 py-6">✅ 의심 변화 없음 — 데이터 안전</div>
+    {% endif %}
+  </div>
+
+  <!-- 최근 동기화 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">🔄 최근 동기화 이력</h3>
+    {% if recent_runs %}
+    <table class="table">
+      <thead><tr><th>시각</th><th>처리/오류</th><th class="num">+행</th><th class="num">-행</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for r in recent_runs %}
+        <tr>
+          <td class="text-xs">{{ r.started_at.strftime('%m-%d %H:%M') if r.started_at else '' }}</td>
+          <td class="text-xs">{{ r.files_processed }}/{{ r.files_errored }}</td>
+          <td class="num text-xs text-green-700">+{{ r.rows_added|money }}</td>
+          <td class="num text-xs text-amber-700">-{{ r.rows_removed|money }}</td>
+          <td>
+            {% if r.status == 'success' %}<span class="badge badge-green">성공</span>
+            {% elif r.status == 'partial' %}<span class="badge badge-orange">부분</span>
+            {% elif r.status == 'rolled_back' %}<span class="badge badge-red">↩ 롤백</span>
+            {% else %}<span class="badge badge-gray">{{ r.status }}</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center text-slate-400 py-6">아직 동기화 이력 없음</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- LLM 검토 대기열 -->
+<div class="card mb-6">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">
+    🤖 LLM 분류 대기열 ({{ pending_reviews|length }})
+  </h3>
+  {% if pending_reviews %}
+  <p class="text-xs text-slate-500 mb-3">
+    AI가 새 파일을 분석했지만 신뢰도가 낮아 사람 확인이 필요한 파일입니다. 도메인을 확정하면 다음 동기화에서 자동 처리됩니다.
+  </p>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>파일</th>
+          <th>경로</th>
+          <th>AI 추천</th>
+          <th class="num">신뢰도</th>
+          <th>판단 근거</th>
+          <th>확정 도메인</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in pending_reviews %}
+        <tr>
+          <td class="text-xs font-medium">{{ r.file_name }}</td>
+          <td class="text-xs text-slate-500 max-w-xs truncate" title="{{ r.rel_path }}">{{ r.rel_path }}</td>
+          <td>{% if r.suggested_domain %}<span class="badge badge-purple">{{ r.suggested_domain }}</span>{% endif %}</td>
+          <td class="num text-xs">
+            {% if r.confidence is not none %}
+              <span class="{% if r.confidence >= 0.85 %}text-green-600 font-bold{% elif r.confidence >= 0.6 %}text-amber-600{% else %}text-slate-500{% endif %}">
+                {{ (r.confidence * 100)|round|int }}%
+              </span>
+            {% endif %}
+          </td>
+          <td class="text-xs text-slate-600 max-w-xs">{{ (r.llm_reasoning or '')[:100] }}</td>
+          <td>
+            <form method="post" action="/self-dev/review/{{ r.id }}/approve" class="flex gap-1">
+              <input type="text" name="domain" value="{{ r.suggested_domain or '' }}" class="text-xs border rounded px-2 py-1 w-32" required>
+              <button class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">확정</button>
+              <button formaction="/self-dev/review/{{ r.id }}/reject" class="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">제외</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center text-slate-400 py-6">
+    ✅ 검토 대기 중인 파일 없음<br>
+    <span class="text-xs">새 파일이 들어오면 AI가 자동 분석하여 여기에 표시합니다.</span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card bg-slate-50">
+  <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">🔒 데이터 변조 방어 정책</h3>
+  <ul class="text-sm text-slate-700 space-y-1 list-disc ml-5">
+    <li><strong>동기화 전 자동 DB 백업</strong> — db_backup/safe_*.db 저장, 30일 보관</li>
+    <li><strong>전후 KPI 비교</strong> — 행수·합계가 의심 임계값 초과 시 자동 차단</li>
+    <li><strong>임계값</strong>: 행수 변동 ±50% 또는 매출/매입 합계 ±70% 초과 시 critical → 자동 롤백</li>
+    <li><strong>웹 입력 보존</strong> — 사용자가 직접 입력한 데이터(<code>source_file=web_app</code>)는 동기화 시 절대 삭제 안 됨</li>
+    <li><strong>원본 파일 해시</strong> — SHA256 보관, 변조 감지 시 알림</li>
+    <li><strong>감사 로그</strong> — 모든 변경 이력 IntegrityCheck 테이블에 영구 보관</li>
+  </ul>
+</div>
+{% endblock %}

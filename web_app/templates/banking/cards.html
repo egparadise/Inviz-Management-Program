@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}카드 — 자금/계좌 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">💳 카드 관리</h1>
+  <div class="flex gap-2">
+    <a href="/banking" class="btn btn-secondary text-sm">🏦 계좌현황</a>
+    <a href="/settings/banking" class="btn btn-secondary text-sm">⚙ 카드 등록·설정</a>
+  </div>
+</div>
+
+{% set q = request.query_params %}
+{% if q.get('up_new') is not none %}<div class="card mb-3 bg-green-50 border border-green-200 text-sm text-green-900">✓ 업로드 완료 — 신규 {{ q.get('up_new') }}건 · 중복제외 {{ q.get('up_dup') }}건 · 형식제외 {{ q.get('up_skip') }}건</div>{% endif %}
+{% if q.get('err') %}<div class="card mb-3 bg-red-50 border border-red-200 text-sm text-red-700">⚠️ {{ q.get('err') }}</div>{% endif %}
+
+{% if not info %}
+<div class="card mb-4 bg-amber-50 border border-amber-200 text-sm text-amber-800">
+  등록된 카드가 없습니다. <a href="/settings/banking" class="underline font-semibold">설정 ▸ 은행·카드</a>에서 카드를 등록하세요. (한도·출금일 포함)
+</div>
+{% endif %}
+
+<!-- 카드 카드뷰 -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+  {% for ci in info %}
+  <div class="card" style="border-top:3px solid {{ '#EF4444' if ci.pct>=90 else 'var(--inviz-purple)' }};">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="font-bold text-slate-800">{{ ci.c.card_name }}</div>
+        <div class="text-xs text-slate-400">{{ ci.c.issuer or '' }}{% if ci.c.card_no_last4 %} · ****{{ ci.c.card_no_last4 }}{% endif %} · {{ ci.c.card_type }}</div>
+      </div>
+      {% if ci.c.active != 'Y' %}<span class="badge badge-orange">비활성</span>{% endif %}
+    </div>
+    <div class="mt-3 text-xs text-slate-500">이번 달 사용</div>
+    <div class="text-xl font-bold" style="color:var(--inviz-purple);">{{ ci.used|money }} <span class="text-xs text-slate-400 font-normal">/ {{ ci.limit|money if ci.limit else '한도미설정' }}</span></div>
+    {% if ci.limit %}
+    <div class="flex items-center gap-2 mt-1">
+      <div style="flex:1;height:8px;background:#E5E7EB;border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:{{ [ci.pct,100]|min }}%;background:{{ '#EF4444' if ci.pct>=90 else ('#F59E0B' if ci.pct>=70 else '#10B981') }};"></div>
+      </div>
+      <span class="text-xs {{ 'text-red-600 font-bold' if ci.pct>=90 else 'text-slate-500' }}">{{ ci.pct }}%</span>
+    </div>
+    {% endif %}
+    <div class="grid grid-cols-2 gap-2 mt-3 text-xs">
+      <div><span class="text-slate-400">출금(결제)일</span><br><span class="font-semibold">{% if ci.c.billing_day %}매월 {{ ci.c.billing_day }}일{% else %}-{% endif %}</span></div>
+      <div><span class="text-slate-400">다음 출금</span><br>
+        <span class="font-semibold">{% if ci.next_billing %}{{ ci.next_billing|date }}{% if ci.days_to is not none and ci.days_to <= 3 %} <span class="badge badge-orange">D-{{ ci.days_to }}</span>{% endif %}{% else %}-{% endif %}</span></div>
+      <div class="col-span-2"><span class="text-slate-400">결제계좌</span> {{ ci.pay_acc or '-' }}</div>
+    </div>
+    <div class="mt-3 pt-2 border-t flex justify-between items-center">
+      <a href="/banking/cards?card_id={{ ci.c.id }}" class="text-purple-700 text-xs font-semibold">이용내역 보기</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- 이용내역 업로드 -->
+{% if cards %}
+<div class="card mb-4" style="border-left:4px solid var(--inviz-purple);">
+  <h3 class="font-semibold mb-2" style="color:var(--inviz-purple);">📤 카드 이용내역 업로드 (Excel / CSV)</h3>
+  <p class="text-xs text-slate-500 mb-3">카드사 사이트에서 내려받은 이용내역(승인내역) 파일을 올리면 자동 인식해 적재합니다. (이용일·이용금액·가맹점 자동 매칭)</p>
+  <form method="post" action="/banking/card-upload" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2">
+    <div>
+      <label class="text-xs text-slate-500">카드 *</label>
+      <select name="card_id" class="select" required style="min-width:200px;">
+        <option value="">카드 선택</option>
+        {% for c in cards %}<option value="{{ c.id }}" {% if sel_card==c.id %}selected{% endif %}>{{ c.card_name }} ({{ c.issuer or '' }})</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">파일 *</label>
+      <input type="file" name="upload" class="input" accept=".xlsx,.xls,.csv" required>
+    </div>
+    <button class="btn btn-primary">📤 업로드</button>
+  </form>
+</div>
+{% endif %}
+
+<!-- 선택 카드 이용내역 -->
+{% if sel_card %}
+<div class="card">
+  <h3 class="font-semibold mb-2 text-slate-700">{{ card_name_map.get(sel_card, '') }} — 이용내역 (최근 100건)</h3>
+  {% if recent %}
+  <table class="table">
+    <thead><tr><th>이용일</th><th>가맹점/내용</th><th>할부</th><th class="num">금액</th></tr></thead>
+    <tbody>
+      {% for t in recent %}
+      <tr>
+        <td class="text-xs whitespace-nowrap">{{ t.tx_date|date }}</td>
+        <td class="text-xs" style="max-width:340px;"><div class="truncate" title="{{ t.merchant }}">{{ t.merchant or '' }}</div></td>
+        <td class="text-xs text-slate-500">{{ t.installment or '일시불' }}</td>
+        <td class="num font-semibold">{{ t.amount|money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="text-center text-slate-400 py-6">이용내역이 없습니다. 위에서 파일을 업로드하세요.</div>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}지출 수정{% else %}새 지출{% endif %} — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">
+    {% if row %}✏️ 지출 수정 (#{{ row.id }}){% else %}➕ 새 지출{% endif %}
+  </h1>
+  <a href="/expense" class="btn btn-secondary">← 목록</a>
+</div>
+
+<form method="post" action="/expense{% if row %}/{{ row.id }}{% endif %}" class="card">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <label class="block">
+      <span class="text-sm font-medium text-slate-700">일자 *</span>
+      <input type="date" name="use_date" class="input mt-1" required
+        value="{{ row.use_date if row else today }}">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-slate-700">금액 *</span>
+      <input type="number" name="amount" class="input mt-1" required step="1" min="0"
+        value="{{ row.amount|int if row else '' }}" placeholder="0">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-slate-700">결제수단 *</span>
+      <select name="payment_method" class="select mt-1" required>
+        {% for p in payment_methods %}
+        <option value="{{ p }}" {% if row and row.payment_method==p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-slate-700">사용처/거래처</span>
+      <input type="text" name="party_or_place" class="input mt-1"
+        value="{{ row.party_or_place or '' if row else '' }}" placeholder="예: 스타벅스 강남점">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-slate-700">분류(대)</span>
+      <select name="category_main" class="select mt-1" id="cat-main" onchange="updateSub()">
+        <option value="">(미지정)</option>
+        {% for main, subs in categories %}
+        <option value="{{ main }}" {% if row and row.category_main==main %}selected{% endif %}>{{ main }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-slate-700">분류(소)</span>
+      <select name="category_sub" class="select mt-1" id="cat-sub">
+        <option value="">(미지정)</option>
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-slate-700">직원</span>
+      <input type="text" name="employee_name" class="input mt-1"
+        value="{{ row.employee_name or '' if row else '' }}" placeholder="홍길동">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium text-slate-700">부서</span>
+      <input type="text" name="department" class="input mt-1"
+        value="{{ row.department or '' if row else '' }}" placeholder="경영지원">
+    </label>
+    <label class="block md:col-span-2">
+      <span class="text-sm font-medium text-slate-700">비고</span>
+      <textarea name="note" class="input mt-1" rows="2" placeholder="자유 메모">{{ row.note or '' if row else '' }}</textarea>
+    </label>
+  </div>
+  <div class="flex gap-2 mt-4">
+    <button class="btn btn-accent text-lg px-8">💾 {% if row %}저장{% else %}추가{% endif %}</button>
+    <a href="/expense" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+
+<script>
+  const CATS = {{ categories|tojson }};
+  const currentSub = {{ (row.category_sub or '')|tojson if row else '""' }};
+  function updateSub(){
+    const main = document.getElementById('cat-main').value;
+    const sub = document.getElementById('cat-sub');
+    sub.innerHTML = '<option value="">(미지정)</option>';
+    const found = CATS.find(x => x[0] === main);
+    if (found){
+      found[1].forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        if (s === currentSub) opt.selected = true;
+        sub.appendChild(opt);
+      });
+    }
+  }
+  updateSub();
+</script>
+{% endblock %}

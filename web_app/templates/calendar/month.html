@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}캘린더 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<style>
+  .cal-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+  .cal-table th { padding:6px; font-size:12px; color:#64748b; border-bottom:1px solid #e5e7eb; }
+  .cal-table td { vertical-align:top; height:104px; border:1px solid #eef0f3; padding:3px; overflow:hidden; cursor:pointer; transition:background .12s; }
+  .cal-table td:hover { background:#faf8ff; }
+  .cal-out { background:#fafafa; color:#cbd5e1; }
+  .cal-daynum { font-size:12px; font-weight:600; color:#475569; }
+  .cal-today .cal-daynum { background:var(--inviz-purple); color:#fff; border-radius:50%; padding:1px 6px; }
+  .cal-sun .cal-daynum { color:#dc2626; } .cal-sat .cal-daynum { color:#2563eb; }
+  .cal-chip { display:block; font-size:11px; line-height:1.3; margin-top:2px; padding:1px 5px; border-radius:4px;
+              white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
+  .cal-chip.done { text-decoration:line-through; opacity:.55; }
+  .cal-more { font-size:10px; color:#94a3b8; padding-left:4px; }
+  #calModal { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:60; display:none; align-items:center; justify-content:center; }
+  #calModal .box { background:#fff; border-radius:12px; width:min(460px,94vw); padding:18px; }
+</style>
+
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+  <h1 class="text-2xl font-bold flex items-center gap-3" style="color: var(--inviz-purple);">
+    📅 캘린더
+    <span class="text-lg text-slate-700">{{ year }}년 {{ month }}월</span>
+  </h1>
+  <div class="flex items-center gap-2">
+    <a href="{{ prev }}" class="btn btn-secondary px-3">◀</a>
+    <a href="{{ this_month }}" class="btn btn-secondary">오늘</a>
+    <a href="{{ next }}" class="btn btn-secondary px-3">▶</a>
+    <button type="button" class="btn btn-primary" onclick="openAdd('{{ default_date }}')">＋ 일정 추가</button>
+  </div>
+</div>
+
+<!-- 범례 -->
+<div class="flex flex-wrap gap-2 mb-3">
+  {% for key, c in cats.items() %}
+  <span class="text-xs px-2 py-1 rounded" style="background:{{ c.bg }};color:{{ c.color }};">{{ c.icon }} {{ c.label }}</span>
+  {% endfor %}
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+  <!-- 달력 -->
+  <div class="card lg:col-span-3" style="padding:10px;">
+    <table class="cal-table">
+      <thead><tr>{% for w in weekday_names %}<th style="{% if loop.index0==0 %}color:#dc2626{% elif loop.index0==6 %}color:#2563eb{% endif %}">{{ w }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for week in weeks %}
+        <tr>
+          {% for d in week %}
+          <td class="{% if not d.in_month %}cal-out{% endif %} {% if d.is_today %}cal-today{% endif %} {% if d.weekday==6 %}cal-sun{% elif d.weekday==5 %}cal-sat{% endif %}"
+              onclick="openAdd('{{ d.iso }}')">
+            <div class="cal-daynum">{{ d.day }}</div>
+            {% for ev in d.events[:4] %}
+              {% set c = cats.get(ev.category, cats['etc']) %}
+              <span class="cal-chip {% if ev.done %}done{% endif %}" style="background:{{ c.bg }};color:{{ c.color }};"
+                {% if ev.source == 'manual' %}
+                  onclick="event.stopPropagation(); openEdit(this)"
+                  data-id="{{ ev.id }}" data-date="{{ d.iso }}" data-title="{{ ev.title }}" data-cat="{{ ev.category }}"
+                  data-amount="{{ ev.amount|int if ev.amount else '' }}" data-party="{{ ev.party or '' }}"
+                  data-time="{{ ev.time or '' }}" data-repeat="{{ ev.repeat or 'none' }}" data-note="{{ ev.note or '' }}"
+                {% else %}
+                  onclick="event.stopPropagation(); {% if ev.link %}location.href='{{ ev.link }}'{% endif %}" title="자동 일정(원본 페이지에서 관리)"
+                {% endif %}>
+                {{ c.icon }} {{ ev.title }}{% if ev.amount %} · {{ ev.amount|money }}{% endif %}
+              </span>
+            {% endfor %}
+            {% if d.events|length > 4 %}<div class="cal-more">+{{ d.events|length - 4 }} 더보기</div>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 다가오는 일정 -->
+  <div class="card lg:col-span-1">
+    <h3 class="font-semibold mb-2" style="color:var(--inviz-purple);">🔔 다가오는 일정 (30일)</h3>
+    {% if upcoming %}
+    <ul class="space-y-2">
+      {% for ev in upcoming %}
+        {% set c = cats.get(ev.category, cats['etc']) %}
+        <li class="text-xs border-b border-slate-100 pb-2">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-slate-600">{{ ev.date }}</span>
+            <span class="px-1.5 rounded" style="background:{{ c.bg }};color:{{ c.color }};">{{ c.icon }} {{ c.label }}</span>
+          </div>
+          <div class="{% if ev.done %}line-through text-slate-400{% endif %}">{{ ev.title }}{% if ev.amount %} <b>· {{ ev.amount|money }}원</b>{% endif %}</div>
+        </li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="text-center text-slate-400 py-6 text-sm">예정된 일정이 없습니다.</div>{% endif %}
+  </div>
+</div>
+
+<!-- 추가/수정 모달 -->
+<div id="calModal">
+  <div class="box">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-bold" id="calModalTitle" style="color:var(--inviz-purple);">일정 추가</h3>
+      <button type="button" onclick="closeModal()" class="text-slate-400 text-xl">✕</button>
+    </div>
+    <form id="calForm" method="post" action="/calendar/add">
+      <div class="grid grid-cols-2 gap-2">
+        <label class="block col-span-1"><span class="text-xs text-slate-500">날짜</span>
+          <input name="event_date" id="f_date" type="date" class="input mt-1" required></label>
+        <label class="block col-span-1"><span class="text-xs text-slate-500">시간(선택)</span>
+          <input name="time_text" id="f_time" class="input mt-1" placeholder="14:00"></label>
+        <label class="block col-span-2"><span class="text-xs text-slate-500">제목</span>
+          <input name="title" id="f_title" class="input mt-1" required placeholder="예) ㅇㅇ병원 세금계산서 발행"></label>
+        <label class="block col-span-1"><span class="text-xs text-slate-500">분류</span>
+          <select name="category" id="f_cat" class="input mt-1">
+            {% for key, c in cats.items() %}<option value="{{ key }}">{{ c.icon }} {{ c.label }}</option>{% endfor %}
+          </select></label>
+        <label class="block col-span-1"><span class="text-xs text-slate-500">반복</span>
+          <select name="repeat" id="f_repeat" class="input mt-1">
+            <option value="none">반복 없음</option><option value="weekly">매주</option>
+            <option value="monthly">매월</option><option value="yearly">매년</option>
+          </select></label>
+        <label class="block col-span-1"><span class="text-xs text-slate-500">금액(원, 선택)</span>
+          <input name="amount" id="f_amount" type="number" class="input mt-1"></label>
+        <label class="block col-span-1"><span class="text-xs text-slate-500">거래처(선택)</span>
+          <input name="party_name" id="f_party" class="input mt-1"></label>
+        <label class="block col-span-2"><span class="text-xs text-slate-500">메모(선택)</span>
+          <textarea name="note" id="f_note" rows="2" class="textarea mt-1"></textarea></label>
+      </div>
+      <div class="flex items-center justify-between mt-4">
+        <button type="button" id="calDeleteBtn" class="text-red-600 text-sm" style="display:none;" onclick="delEvent()">🗑 삭제</button>
+        <div class="flex gap-2 ml-auto">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+const CAL_Y = {{ year }}, CAL_M = {{ month }};
+const modal = document.getElementById('calModal');
+const form = document.getElementById('calForm');
+function _set(id,v){ document.getElementById(id).value = v || ''; }
+function openAdd(iso) {
+  document.getElementById('calModalTitle').textContent = '일정 추가';
+  form.action = '/calendar/add';
+  _set('f_date', iso); _set('f_time',''); _set('f_title',''); _set('f_cat','etc');
+  _set('f_repeat','none'); _set('f_amount',''); _set('f_party',''); _set('f_note','');
+  document.getElementById('calDeleteBtn').style.display = 'none';
+  window.__editId = null;
+  modal.style.display = 'flex';
+}
+function openEdit(el) {
+  const d = el.dataset;
+  document.getElementById('calModalTitle').textContent = '일정 수정';
+  form.action = `/calendar/${d.id}/update`;
+  _set('f_date', d.date); _set('f_time', d.time); _set('f_title', d.title); _set('f_cat', d.cat);
+  _set('f_repeat', d.repeat); _set('f_amount', d.amount); _set('f_party', d.party); _set('f_note', d.note);
+  document.getElementById('calDeleteBtn').style.display = '';
+  window.__editId = d.id;
+  modal.style.display = 'flex';
+}
+function closeModal(){ modal.style.display = 'none'; }
+function delEvent(){
+  if (!window.__editId || !confirm('이 일정을 삭제할까요?')) return;
+  const f = document.createElement('form');
+  f.method = 'post'; f.action = `/calendar/${window.__editId}/delete`;
+  f.innerHTML = `<input name="y" value="${CAL_Y}"><input name="m" value="${CAL_M}">`;
+  document.body.appendChild(f); f.submit();
+}
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+</script>
+{% endblock %}

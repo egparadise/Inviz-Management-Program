@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}계산서 작성·발행 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">
+    🧾 계산서 작성·발행
+    {% if asp_ready %}<span class="badge badge-green">ASP 자동발행 ({{ asp }})</span>
+    {% else %}<span class="badge badge-orange">수동/기록 모드</span>{% endif %}
+  </h1>
+  <div class="flex gap-2">
+    <form method="post" action="/tax/process-scheduled" class="inline"><button class="btn btn-secondary" title="발송일이 도래한 예약분을 지금 처리">⏰ 예약분 처리</button></form>
+    <a href="{{ hometax_url }}" target="_blank" class="btn btn-secondary">🏛 홈택스 바로가기</a>
+    <a href="/settings/integrations" class="btn btn-secondary">⚙ 연동 설정</a>
+  </div>
+</div>
+
+{% set q = request.query_params %}
+{% if q.get('created') %}<div class="card mb-3 bg-green-50 border border-green-300 text-sm text-green-700">✅ 계산서가 작성되었습니다. 아래 목록에서 <b>발행</b>하세요.</div>{% endif %}
+{% if q.get('issued') %}<div class="card mb-3 bg-green-50 border border-green-300 text-sm text-green-700">✅ 발행 처리되었습니다. {% if not asp_ready %}(수동 모드 — 실제 국세청 전송은 홈택스에서 진행){% endif %}</div>{% endif %}
+{% if q.get('processed') is not none %}<div class="card mb-3 bg-sky-50 border border-sky-300 text-sm text-sky-800">⏰ 예약 발송 처리: {{ q.get('processed') }}건 (발송일 도래분). 평소엔 스케줄러가 자동 처리합니다.</div>{% endif %}
+{% if q.get('msg') %}<div class="card mb-3 bg-slate-50 border text-sm text-slate-700">{{ q.get('msg') }}</div>{% endif %}
+
+{% if not asp_ready %}
+<div class="card mb-4" style="border-left:4px solid var(--inviz-orange);">
+  <div class="text-sm text-slate-700">현재 <b>수동/기록 모드</b>입니다. 계산서를 작성·관리하고 거래처에 메일을 보낼 수 있습니다.
+  실제 전자세금계산서 국세청 발행은 <a href="{{ hometax_url }}" target="_blank" class="text-purple-700 underline">홈택스</a>에서 진행하거나,
+  <a href="/settings/integrations" class="text-purple-700 underline">설정</a>에서 팝빌·바로빌 키를 등록하면 이 버튼으로 자동 발행됩니다.</div>
+</div>
+{% endif %}
+
+<!-- 신규 계산서 작성 -->
+<div class="card mb-4">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">📝 신규 계산서 작성</h3>
+  <form method="post" action="/tax/create" class="grid grid-cols-1 md:grid-cols-4 gap-3"
+        oninput="document.getElementById('vatHint').textContent = (Number((this.supply.value||'0').replace(/,/g,''))*0.1).toLocaleString();">
+    <label class="block"><span class="text-xs text-slate-500">거래처(공급받는자)</span>
+      <input name="party_name" list="partyList" class="input mt-1" required placeholder="병원·거래처명">
+      <datalist id="partyList">{% for p in parties %}<option value="{{ p.name }}">{{ p.biz_no or '' }}</option>{% endfor %}</datalist>
+    </label>
+    <label class="block"><span class="text-xs text-slate-500">사업자번호</span>
+      <input name="buyer_corp_no" class="input mt-1" placeholder="000-00-00000"></label>
+    <label class="block"><span class="text-xs text-slate-500">거래처 이메일(발송용)</span>
+      <input name="buyer_email" type="email" class="input mt-1" placeholder="biz@partner.co.kr"></label>
+    <label class="block"><span class="text-xs text-slate-500">작성일자</span>
+      <input name="write_date" type="date" class="input mt-1" value="{{ today }}"></label>
+    <label class="block"><span class="text-xs text-slate-500">⏰ 예약 발송일 (선택)</span>
+      <input name="send_date" type="date" class="input mt-1">
+      <span class="text-xs text-slate-400">지정하면 그 날짜에 자동 발송 + 알림</span></label>
+    <label class="block md:col-span-2"><span class="text-xs text-slate-500">품목</span>
+      <input name="item_desc" class="input mt-1" required placeholder="Saintview PACS 유지보수 등"></label>
+    <label class="block"><span class="text-xs text-slate-500">종류</span>
+      <select name="doc_kind" class="input mt-1"><option>세금계산서</option><option>계산서(면세)</option></select></label>
+    <label class="block"><span class="text-xs text-slate-500">공급가액(원)</span>
+      <input name="supply" type="number" class="input mt-1" required placeholder="0">
+      <span class="text-xs text-slate-400">세액(10%) ≈ <span id="vatHint">0</span>원 (비우면 자동)</span></label>
+    <label class="block"><span class="text-xs text-slate-500">세액(직접입력, 선택)</span>
+      <input name="vat" type="number" class="input mt-1" placeholder="자동계산"></label>
+    <div class="flex items-end md:col-span-4">
+      <button class="btn btn-primary">📝 작성 (발행대기)</button>
+    </div>
+  </form>
+</div>
+
+<!-- 발행 목록 -->
+<div class="card">
+  <h3 class="font-semibold mb-3 text-slate-700">발행 계산서 ({{ rows|length }}건)</h3>
+  {% if rows %}
+  <table class="table">
+    <thead><tr><th>작성일</th><th>거래처</th><th>품목</th><th class="num">공급가액</th><th class="num">세액</th><th class="num">합계</th><th>상태</th><th></th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="text-xs">{{ r.write_date or '' }}</td>
+        <td class="font-semibold">{{ r.party_name or '-' }}<div class="text-xs text-slate-400">{{ r.buyer_corp_no or '' }}</div></td>
+        <td class="text-xs">{{ r.item_desc or '-' }}</td>
+        <td class="num">{{ r.supply|money }}</td>
+        <td class="num text-slate-500">{{ r.vat|money }}</td>
+        <td class="num font-semibold" style="color:var(--inviz-purple);">{{ r.total|money }}</td>
+        <td>
+          {% if r.status == 'sent' %}<span class="badge badge-green">전송완료</span>
+          {% elif r.status == 'issued' %}<span class="badge badge-green">발행완료</span>
+          {% elif r.status == 'scheduled' %}<span class="badge badge-purple">⏰ 예약 {{ r.send_date }}</span>
+          {% else %}<span class="badge badge-orange">발행대기</span>{% endif %}
+        </td>
+        <td class="whitespace-nowrap">
+          {% if r.status in ['ready','draft','scheduled'] %}
+          <form method="post" action="/tax/{{ r.id }}/issue" class="inline" onsubmit="return confirm('이 계산서를 발행 처리할까요?')">
+            <button class="btn btn-primary text-xs px-2 py-1">🚀 발행</button></form>
+          {% endif %}
+          <a href="/tax/{{ r.id }}/export.xlsx" class="text-slate-600 text-xs ml-1" title="Excel">📊</a>
+          <form method="post" action="/tax/{{ r.id }}/email" class="inline"><button class="text-purple-700 text-xs ml-1" title="메일 발송">✉</button></form>
+          <form method="post" action="/tax/{{ r.id }}/delete" class="inline" onsubmit="return confirm('삭제?')"><button class="text-red-600 text-xs ml-1">삭제</button></form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="text-center text-slate-400 py-8">작성된 계산서가 없습니다.</div>{% endif %}
+</div>
+{% endblock %}

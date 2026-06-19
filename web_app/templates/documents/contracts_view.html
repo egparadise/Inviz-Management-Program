@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}고객 계약서(제품별) — 서류·인증 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">
+    <span>{{ meta.icon }}</span> {{ meta.label }}
+    <span class="text-sm font-normal text-slate-400">({{ total_count }}건)</span>
+  </h1>
+  <a href="/contracts/new" class="btn btn-primary text-sm">+ 계약 등록</a>
+</div>
+
+<!-- 카테고리 탭 -->
+<div class="flex gap-1 mb-4 flex-wrap text-sm">
+  <a href="/documents" class="px-3 py-1 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50">📁 전체</a>
+  {% for c in categories %}
+  <a href="/documents/cat/{{ c.key }}" class="px-3 py-1 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50">{{ c.icon }} {{ c.label }}</a>
+  {% endfor %}
+  <a href="/documents/contracts" class="px-3 py-1 rounded-full border bg-purple-100 border-purple-300 text-purple-800 font-semibold">🤝 고객 계약서</a>
+</div>
+
+<!-- 합계 -->
+<div class="grid grid-cols-3 gap-3 mb-4">
+  <div class="kpi-card"><div class="text-xs text-slate-500">계약 건수</div><div class="text-2xl font-bold text-slate-800 mt-1">{{ total_count }}</div></div>
+  <div class="kpi-card"><div class="text-xs text-slate-500">계약금액 합계</div><div class="text-2xl font-bold" style="color:var(--inviz-purple)">{{ total_amount|money }}</div></div>
+  <div class="kpi-card" style="border-color:#EF4444;"><div class="text-xs text-slate-500">미수금 합계</div><div class="text-2xl font-bold text-red-700 mt-1">{{ total_unpaid|money }}</div></div>
+</div>
+
+<!-- 필터 -->
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div>
+      <label class="text-xs text-slate-500">연도</label>
+      <select name="year" class="select" onchange="this.form.submit()">
+        <option value="">전체(연도별)</option>
+        {% for y in years %}<option value="{{ y }}" {% if sel_year == y %}selected{% endif %}>{{ y }}년</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">구분</label>
+      <select name="kind" class="select">
+        <option value="">전체</option>
+        {% for k in kinds %}<option value="{{ k }}" {% if filter.kind == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">제품/품목</label>
+      <select name="item" class="select">
+        <option value="">전체</option>
+        {% for it in items %}<option value="{{ it }}" {% if filter.item == it %}selected{% endif %}>{{ it[:24] }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="md:col-span-2">
+      <label class="text-xs text-slate-500">검색</label>
+      <input type="text" name="q" value="{{ filter.q }}" class="input" placeholder="계약명·거래처·품목">
+    </div>
+    <div class="col-span-2 md:col-span-5 flex gap-2 justify-end pt-1 border-t">
+      <button class="btn btn-primary px-6">필터 적용</button>
+      <a href="/documents/contracts" class="btn btn-secondary">초기화</a>
+    </div>
+  </form>
+</div>
+
+<!-- 연도별 그룹 -->
+{% if groups %}
+{% for g in groups %}
+<details class="card mb-3" open>
+  <summary class="cursor-pointer font-semibold flex items-center justify-between" style="color:var(--inviz-purple);">
+    <span>📅 {{ g.year if g.year else '연도미상' }}{% if g.year %}년{% endif %}</span>
+    <span class="text-xs font-normal text-slate-400">{{ g.rows|length }}건</span>
+  </summary>
+  <div class="overflow-x-auto mt-3">
+    <table class="table">
+      <thead><tr><th>거래처</th><th>제품/품목</th><th>구분</th><th>시작</th><th>종료</th><th class="num">잔여</th><th class="num">계약금액</th><th class="num">미수금</th><th>상태</th><th></th></tr></thead>
+      <tbody>
+        {% for r in g.rows %}
+        <tr {% if r.remain_days is not none and r.remain_days < 0 %}class="bg-red-50"{% elif r.remain_days is not none and r.remain_days <= 30 %}class="bg-amber-50"{% endif %}>
+          <td class="font-medium" style="max-width:200px;"><div class="truncate" title="{{ r.party_name }}">{{ r.party_name or '-' }}</div></td>
+          <td class="text-xs" style="max-width:200px;"><div class="truncate" title="{{ r.item_name }}">{{ r.item_name or r.name or '-' }}</div></td>
+          <td>{% if r.kind %}<span class="badge {{ 'badge-purple' if r.kind=='영업' else 'badge-green' }}">{{ r.kind }}</span>{% endif %}</td>
+          <td class="text-xs whitespace-nowrap">{{ r.start_date|date }}</td>
+          <td class="text-xs whitespace-nowrap font-medium">{{ r.end_date|date }}</td>
+          <td class="num text-xs">
+            {% if r.remain_days is not none %}
+              {% if r.remain_days < 0 %}<span class="badge badge-red">{{ r.remain_days }}일</span>
+              {% elif r.remain_days <= 30 %}<span class="badge badge-orange">{{ r.remain_days }}일</span>
+              {% else %}<span class="text-slate-500">{{ r.remain_days }}일</span>{% endif %}
+            {% else %}<span class="text-slate-300">-</span>{% endif %}
+          </td>
+          <td class="num">{{ r.contract_amount|money }}</td>
+          <td class="num {% if r.unpaid_amount %}text-red-600{% else %}text-slate-400{% endif %}">{{ r.unpaid_amount|money }}</td>
+          <td class="text-xs">{{ r.status or '' }}</td>
+          <td class="whitespace-nowrap"><a href="/contracts/{{ r.id }}/edit" class="text-purple-700 text-xs">수정</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endfor %}
+{% else %}
+<div class="card text-center text-slate-400 py-10">조건에 맞는 고객 계약서가 없습니다.</div>
+{% endif %}
+{% endblock %}

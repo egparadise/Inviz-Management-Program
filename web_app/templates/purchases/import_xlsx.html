@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}매입 Excel 업로드 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">📊 매입 Excel 업로드</h1>
+  <div class="flex gap-2">
+    <a href="/purchases/import-csv" class="btn btn-secondary">📥 CSV 업로드</a>
+    <a href="/purchases" class="btn btn-secondary">← 매입 목록</a>
+  </div>
+</div>
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">사용 방법</h3>
+  <ol class="text-sm text-slate-700 space-y-1 ml-4 list-decimal">
+    <li><a href="/purchases/import-xlsx/template" class="text-purple-700 underline font-semibold">📊 표준 Excel 양식 다운로드</a> 후 데이터 입력</li>
+    <li>양식의 노랑색 예시 행은 삭제하고 4행부터 매입 데이터를 입력</li>
+    <li>일자 형식: <code>YYYY-MM-DD</code> (Excel 날짜 자동 인식)</li>
+    <li>매입유형 컬럼은 드롭다운 (정기/일회성/기타)</li>
+    <li>업로드 → 시트 선택 → 미리보기 → "적용"</li>
+  </ol>
+  <div class="text-xs text-slate-500 mt-2">
+    필수 헤더(3행): {{ headers | join(' , ') }}
+  </div>
+</div>
+
+{% if not preview %}
+<form method="post" action="/purchases/import-xlsx/preview" enctype="multipart/form-data" class="card">
+  <label class="block mb-3">
+    <span class="text-sm font-medium text-slate-700">Excel 파일 선택 (.xlsx)</span>
+    <input type="file" name="file" accept=".xlsx,.xlsm,.xls" required class="mt-2 block w-full text-sm text-slate-600
+      file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold
+      file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 cursor-pointer">
+  </label>
+
+  {% if sheets %}
+  <label class="block mb-3">
+    <span class="text-sm font-medium text-slate-700">시트 선택</span>
+    <select name="sheet_name" class="select mt-1">
+      {% for s in sheets %}<option value="{{ s }}" {% if s == selected_sheet %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endif %}
+
+  <label class="block mb-3">
+    <span class="text-sm font-medium text-slate-700">헤더 행 위치 (보통 3행)</span>
+    <input type="number" name="header_row" value="{{ header_row or 3 }}" min="1" max="20" class="input mt-1" style="width:120px;">
+  </label>
+
+  <button class="btn btn-primary mt-2">미리보기</button>
+</form>
+{% endif %}
+
+{% if errors %}
+<div class="card mb-4 bg-red-50 border border-red-300">
+  <h3 class="font-semibold text-red-800 mb-2">⚠️ 검증 오류 ({{ errors|length }}건)</h3>
+  <ul class="text-sm text-red-700 space-y-1">
+    {% for e in errors %}<li>• {{ e }}</li>{% endfor %}
+  </ul>
+  <a href="/purchases/import-xlsx" class="btn btn-secondary mt-3">다시 업로드</a>
+</div>
+{% endif %}
+
+{% if preview %}
+<div class="card mb-4">
+  <div class="flex justify-between items-center mb-3">
+    <h3 class="font-semibold" style="color: var(--inviz-purple);">
+      📊 미리보기 ({{ preview|length }}건)
+      {% if selected_sheet %}<span class="text-xs text-slate-500 ml-2">시트: {{ selected_sheet }} / 헤더 행: {{ header_row }}</span>{% endif %}
+    </h3>
+    <div class="text-sm">
+      공급가액 <span class="font-semibold">{{ (preview | sum(attribute='supply'))|money }}</span> ·
+      <span class="font-bold text-purple-700">합계 {{ (preview | sum(attribute='total'))|money }}</span> 원
+    </div>
+  </div>
+  <div class="overflow-x-auto max-h-96 overflow-y-auto">
+    <table class="table">
+      <thead class="sticky top-0">
+        <tr>
+          <th class="w-12">#</th><th>일자</th><th>거래처</th><th>제품코드</th><th>품명</th>
+          <th>유형</th><th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in preview %}
+        <tr>
+          <td class="text-slate-400 text-xs">{{ r.row_no }}</td>
+          <td class="whitespace-nowrap">{{ r.txn_date }}</td>
+          <td class="font-medium">{{ r.party_name }}</td>
+          <td>{% if r.product_code %}<span class="badge badge-purple">{{ r.product_code }}</span>{% endif %}</td>
+          <td class="text-xs text-slate-600">{{ r.item_raw }}</td>
+          <td class="text-xs">{{ r.purchase_type }}</td>
+          <td class="num">{{ r.supply|money }}</td>
+          <td class="num text-slate-500">{{ r.vat|money }}</td>
+          <td class="num font-semibold">{{ r.total|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<form method="post" action="/purchases/import-xlsx/commit" class="flex gap-2 items-center">
+  <input type="hidden" name="payload" value='{{ encoded | e }}'>
+  <button class="btn btn-accent text-lg px-8" onclick="return confirm('{{ preview|length }}건을 매입에 적용합니다.')">
+    ✓ 적용 ({{ preview|length }}건)
+  </button>
+  <a href="/purchases/import-xlsx" class="btn btn-secondary">취소·다시 선택</a>
+  {% if errors %}
+  <span class="text-xs text-amber-700">⚠️ 오류 {{ errors|length }}건은 제외하고 적용됩니다</span>
+  {% endif %}
+</form>
+{% endif %}
+{% endblock %}

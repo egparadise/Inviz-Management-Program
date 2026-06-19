@@ -1,0 +1,35 @@
+# 데이터·비밀은 이미지에 포함 금지 (런타임에 볼륨/환경변수로 주입)
+app.db
+*.db
+*.db-journal
+*.db-wal
+.env
+.env.*
+!.env.production.example
+certs/
+db_backup/
+report_templates/
+report_snapshots/
+doc_uploads/
+logs/
+vector_store/
+data/
+*_data_patch.zip
+
+# 로컬(Windows) 전용 런처/스크립트 — 컨테이너에 불필요
+*.bat
+*.vbs
+*.ps1
+_open_browser.py
+_gen_cert.py
+_run_server_hidden.vbs
+_trust_cert.ps1
+_import_*.py
+_apply_*.py
+
+# 파이썬 캐시 / git
+__pycache__/
+**/__pycache__/
+*.pyc
+.git/
+.gitignore

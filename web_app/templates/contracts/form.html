@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}계약 수정{% else %}계약 신규{% endif %}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4 text-slate-800">{% if row %}계약 수정{% else %}계약 신규 등록{% endif %}</h1>
+<form method="post" action="{% if row %}/contracts/{{ row.id }}{% else %}/contracts{% endif %}" class="card max-w-4xl">
+  <div class="grid grid-cols-3 gap-4">
+    <div>
+      <label class="text-sm font-medium text-slate-700">계약ID *</label>
+      {% if row %}<input type="text" class="input bg-slate-100" readonly value="{{ row.id }}">
+      {% else %}<input type="text" name="id" class="input" required value="{{ next_id }}">{% endif %}
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">계약명 *</label>
+      <input type="text" name="name" class="input" required value="{{ row.name if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">구분</label>
+      <select name="kind" class="select">
+        {% set k = row.kind if row else '' %}
+        <option value="">선택</option>
+        {% for c in ['유지보수', '장비', 'AI', '판독', '임대', '기타'] %}<option value="{{ c }}" {% if k == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">거래처</label>
+      <input type="text" name="party_name" class="input" list="party-list" value="{{ row.party_name if row else '' }}">
+      <datalist id="party-list">{% for p in parties %}<option value="{{ p.name }}" data-code="{{ p.code }}">{% endfor %}</datalist>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">거래처코드</label>
+      <input type="text" name="party_code" class="input" value="{{ row.party_code if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">제품</label>
+      <select name="product_code" class="select">
+        <option value="">선택</option>
+        {% for p in products %}<option value="{{ p.code }}" {% if row and row.product_code == p.code %}selected{% endif %}>{{ p.code }} - {{ p.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">품명</label>
+      <input type="text" name="item_name" class="input" value="{{ row.item_name if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">체결일</label>
+      <input type="date" name="signed_date" class="input" value="{{ row.signed_date|date if row and row.signed_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">시작일</label>
+      <input type="date" name="start_date" class="input" value="{{ row.start_date|date if row and row.start_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">만료일</label>
+      <input type="date" name="end_date" class="input" value="{{ row.end_date|date if row and row.end_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">계약기간(개월)</label>
+      <input type="number" name="duration_months" class="input num" step="0.5" value="{{ row.duration_months if row and row.duration_months else 0 }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">계약금액</label>
+      <input type="number" name="contract_amount" class="input num" value="{{ row.contract_amount|round|int if row else 0 }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">발행금액</label>
+      <input type="number" name="issued_amount" class="input num" value="{{ row.issued_amount|round|int if row else 0 }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">미수금</label>
+      <input type="number" name="unpaid_amount" class="input num" value="{{ row.unpaid_amount|round|int if row else 0 }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">대금지불</label>
+      <input type="text" name="payment_term" class="input" value="{{ row.payment_term if row else '' }}" placeholder="월/분기/연/일시">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">자동연장</label>
+      <select name="auto_renew" class="select">
+        <option value="N" {% if not row or row.auto_renew != 'Y' %}selected{% endif %}>아니오</option>
+        <option value="Y" {% if row and row.auto_renew == 'Y' %}selected{% endif %}>예</option>
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">설치일</label>
+      <input type="date" name="install_date" class="input" value="{{ row.install_date|date if row and row.install_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">하자보수 만료</label>
+      <input type="date" name="warranty_end" class="input" value="{{ row.warranty_end|date if row and row.warranty_end else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">계약서 보관</label>
+      <select name="has_contract_doc" class="select">
+        <option value="Y" {% if not row or row.has_contract_doc == 'Y' %}selected{% endif %}>유</option>
+        <option value="N" {% if row and row.has_contract_doc == 'N' %}selected{% endif %}>무</option>
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">담당자</label>
+      <input type="text" name="owner" class="input" value="{{ row.owner if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">연락처</label>
+      <input type="text" name="phone" class="input" value="{{ row.phone if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">상태 *</label>
+      <select name="status" class="select" required>
+        {% set s = row.status if row else '진행' %}
+        {% for st in ['진행', '만료', '해지'] %}<option value="{{ st }}" {% if s == st %}selected{% endif %}>{{ st }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-span-3">
+      <label class="text-sm font-medium text-slate-700">비고</label>
+      <textarea name="note" class="textarea" rows="2">{{ row.note if row else '' }}</textarea>
+    </div>
+  </div>
+  <div class="flex gap-2 mt-6">
+    <button class="btn btn-primary">{% if row %}수정{% else %}등록{% endif %}</button>
+    <a href="/contracts" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+<script>
+document.querySelector('input[name=party_name]').addEventListener('change', function(e) {
+  const opt = document.querySelector(`#party-list option[value="${e.target.value}"]`);
+  if (opt) document.querySelector('input[name=party_code]').value = opt.dataset.code;
+});
+</script>
+{% endblock %}

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}지출 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">💸 지출</h1>
+  <div class="flex gap-2 flex-wrap">
+    <a href="/expense/new" class="btn btn-accent">➕ 새 지출</a>
+    <a href="/expense/receipt" class="btn btn-primary">📷 영수증 사진</a>
+    <a href="/expense/import" class="btn btn-primary">📥 CSV/Excel 업로드</a>
+    <a href="/expense/categories" class="btn btn-secondary">🗂 분류 관리</a>
+    <div class="inline-flex border rounded-md overflow-hidden">
+      <span class="px-2 py-1 text-xs text-slate-500 bg-slate-50 border-r">⬇ 다운로드</span>
+      <a href="/expense/export.csv?year={{ year or '' }}&month={{ month or '' }}&payment={{ payment }}&category={{ category }}&q={{ q }}" class="px-3 py-1 text-sm hover:bg-purple-50">📊 CSV</a>
+      <a href="/expense/export.pdf?year={{ year or '' }}&month={{ month or '' }}&payment={{ payment }}&category={{ category }}&q={{ q }}" class="px-3 py-1 text-sm hover:bg-purple-50 border-l">📄 PDF</a>
+    </div>
+  </div>
+</div>
+
+<form method="get" class="card mb-4 flex flex-wrap gap-3 items-end">
+  <label class="block">
+    <span class="text-xs text-slate-500">연도</span>
+    <select name="year" class="select mt-1">
+      <option value="">(전체)</option>
+      {% for y in years %}<option value="{{ y }}" {% if year==y %}selected{% endif %}>{{ y }}년</option>{% endfor %}
+    </select>
+  </label>
+  <label class="block">
+    <span class="text-xs text-slate-500">월</span>
+    <select name="month" class="select mt-1">
+      <option value="">(전체)</option>
+      {% for m in range(1,13) %}<option value="{{ m }}" {% if month==m %}selected{% endif %}>{{ m }}월</option>{% endfor %}
+    </select>
+  </label>
+  <label class="block">
+    <span class="text-xs text-slate-500">결제수단</span>
+    <select name="payment" class="select mt-1">
+      <option value="">(전체)</option>
+      {% for p in payment_methods %}<option value="{{ p }}" {% if payment==p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="block">
+    <span class="text-xs text-slate-500">분류(대)</span>
+    <select name="category" class="select mt-1">
+      <option value="">(전체)</option>
+      {% for c in categories %}<option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="block flex-grow min-w-[180px]">
+    <span class="text-xs text-slate-500">검색 (사용처·메모·직원)</span>
+    <input type="text" name="q" value="{{ q }}" class="input mt-1" placeholder="예: 사무용품">
+  </label>
+  <button class="btn btn-primary">🔍 조회</button>
+  <a href="/expense" class="btn btn-secondary">초기화</a>
+</form>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+  <div class="card">
+    <div class="text-xs text-slate-500">총 건수</div>
+    <div class="text-2xl font-bold" style="color: var(--inviz-purple);">{{ total }}건</div>
+  </div>
+  <div class="card">
+    <div class="text-xs text-slate-500">합계 금액</div>
+    <div class="text-2xl font-bold" style="color: var(--inviz-orange);">{{ sum_amt|money }}원</div>
+  </div>
+  <div class="card">
+    <div class="text-xs text-slate-500 mb-2">결제수단별</div>
+    <div class="text-xs space-y-1">
+      {% for p in by_payment[:4] %}
+      <div class="flex justify-between"><span>{{ p.name }}</span><span class="font-mono">{{ p.sum|money }}</span></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>일자</th><th>직원</th><th>사용처/거래처</th>
+          <th class="num">금액</th><th>결제수단</th>
+          <th>분류(대)</th><th>분류(소)</th><th>비고</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="whitespace-nowrap">{{ r.use_date }}</td>
+          <td>{{ r.employee_name or '' }}</td>
+          <td>{{ r.party_or_place or '' }}</td>
+          <td class="num font-semibold">{{ r.amount|money }}</td>
+          <td>{% if r.payment_method %}<span class="badge badge-purple">{{ r.payment_method }}</span>{% endif %}</td>
+          <td class="text-xs">{{ r.category_main or '' }}</td>
+          <td class="text-xs text-slate-500">{{ r.category_sub or '' }}</td>
+          <td class="text-xs text-slate-500">{{ r.note or '' }}</td>
+          <td>
+            <a href="/expense/{{ r.id }}/edit" class="text-purple-700 text-xs underline">수정</a>
+            <form method="post" action="/expense/{{ r.id }}/delete" class="inline" onsubmit="return confirm('삭제할까요?')">
+              <button class="text-red-600 text-xs underline ml-1">삭제</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center text-slate-400 py-6">조회 결과가 없습니다.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if total_pages > 1 %}
+  <div class="flex justify-center gap-1 mt-3 text-sm">
+    {% if page > 1 %}<a href="?year={{ year or '' }}&month={{ month or '' }}&payment={{ payment }}&category={{ category }}&q={{ q }}&page={{ page-1 }}" class="btn btn-secondary text-xs">‹ 이전</a>{% endif %}
+    <span class="px-3 py-1 text-slate-600">{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}<a href="?year={{ year or '' }}&month={{ month or '' }}&payment={{ payment }}&category={{ category }}&q={{ q }}&page={{ page+1 }}" class="btn btn-secondary text-xs">다음 ›</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

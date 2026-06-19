@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}지출 분류 관리 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">🗂 지출 분류(대/소) 관리</h1>
+  <a href="/expense" class="btn btn-secondary">← 지출 목록</a>
+</div>
+
+<form method="post" action="/expense/categories/save" class="card mb-4">
+  <p class="text-sm text-slate-600 mb-3">
+    📌 좌측 = <b>분류(대)</b>, 우측 = <b>분류(소)</b> 리스트.
+    각 항목 옆 ✕로 삭제, 빈 칸에 입력 후 + 로 추가, 저장 후 새 지출 폼·미리보기 등 모든 곳에 즉시 반영됩니다.
+  </p>
+  <div id="cat-editor" class="space-y-3"></div>
+  <button type="button" onclick="addMain()" class="btn btn-secondary text-sm mt-3">➕ 분류(대) 추가</button>
+  <input type="hidden" name="categories_json" id="categories_json">
+  <div class="mt-4 flex gap-2">
+    <button type="submit" onclick="syncJson()" class="btn btn-accent text-lg px-8">💾 저장</button>
+    <button type="button" onclick="resetDefault()" class="btn btn-secondary">기본값 복원</button>
+  </div>
+</form>
+
+<script>
+let CATS = {{ categories_json | safe }};
+const DEFAULT_CATS = [
+  ["운영비", ["사무용품","통신비","사무실 임대료","공과금","보험","기타"]],
+  ["인건비", ["급여 외","복리후생","회식·접대","교육","기타"]],
+  ["판매관리비", ["광고선전","지급수수료","운반비","여비교통","차량유지","기타"]],
+  ["R&D", ["연구개발","외주용역","특허·인증","장비","기타"]],
+  ["기타", ["세금공과","잡비","기타"]],
+];
+
+function render(){
+  const root = document.getElementById('cat-editor');
+  root.innerHTML = '';
+  CATS.forEach((entry, i) => {
+    const [main, subs] = entry;
+    const row = document.createElement('div');
+    row.className = 'border rounded-lg p-3 bg-slate-50';
+    row.innerHTML = `
+      <div class="flex items-center gap-2 mb-2">
+        <input type="text" value="${escapeHtml(main)}" onchange="updateMain(${i}, this.value)"
+               class="input flex-grow font-semibold" placeholder="분류(대) 이름">
+        <button type="button" onclick="delMain(${i})" class="btn btn-secondary text-xs">✕ 대 삭제</button>
+      </div>
+      <div class="flex flex-wrap gap-1 ml-4" id="subs-${i}">
+        ${subs.map((s, j) => `
+          <span class="inline-flex items-center gap-1 bg-white border rounded-full pl-3 pr-1 py-0.5 text-sm">
+            <input type="text" value="${escapeHtml(s)}" onchange="updateSub(${i},${j},this.value)" class="bg-transparent border-0 outline-none w-32">
+            <button type="button" onclick="delSub(${i},${j})" class="text-red-500 hover:bg-red-100 rounded-full w-5 h-5">✕</button>
+          </span>
+        `).join('')}
+        <span class="inline-flex items-center gap-1">
+          <input type="text" id="new-sub-${i}" placeholder="새 소분류" class="input text-sm" style="width:140px">
+          <button type="button" onclick="addSub(${i})" class="text-green-600 font-bold">＋</button>
+        </span>
+      </div>
+    `;
+    root.appendChild(row);
+  });
+}
+function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function addMain(){ CATS.push(["새 분류", []]); render(); }
+function delMain(i){ if(confirm(`"${CATS[i][0]}" 대분류를 삭제할까요?`)){ CATS.splice(i,1); render(); } }
+function updateMain(i, v){ CATS[i][0] = v; }
+function addSub(i){ const el = document.getElementById(`new-sub-${i}`); if(el.value.trim()){ CATS[i][1].push(el.value.trim()); render(); } }
+function delSub(i,j){ CATS[i][1].splice(j,1); render(); }
+function updateSub(i,j,v){ CATS[i][1][j] = v; }
+function syncJson(){ document.getElementById('categories_json').value = JSON.stringify(CATS); }
+function resetDefault(){ if(confirm('기본값으로 되돌릴까요?')){ CATS = JSON.parse(JSON.stringify(DEFAULT_CATS)); render(); } }
+render();
+</script>
+{% endblock %}

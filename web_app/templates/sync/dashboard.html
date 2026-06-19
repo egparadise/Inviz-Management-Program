@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}동기화 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold text-slate-800">자동 동기화</h1>
+  <div class="flex gap-2">
+    <a href="/sync/files" class="btn btn-secondary">추적 파일 전체</a>
+    <form method="post" action="/sync/run">
+      <button class="btn btn-primary">+ 지금 동기화 실행</button>
+    </form>
+  </div>
+</div>
+
+{% if request.query_params.get('started') %}
+<div class="card mb-4 bg-blue-50 border border-blue-200">
+  <div class="text-sm text-blue-900">
+    <strong>동기화가 백그라운드에서 시작되었습니다.</strong>
+    잠시 후 새로고침하면 결과가 표시됩니다. (대용량 파일은 1~2분 소요)
+  </div>
+</div>
+{% endif %}
+
+<!-- KPI -->
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">추적 파일</div>
+    <div class="text-2xl font-bold text-slate-800 mt-1">{{ total_files }}</div>
+    <div class="text-xs text-slate-400 mt-1">매핑 {{ mapped_files }} / 미매핑 {{ total_files - mapped_files }}</div>
+  </div>
+  {% if last %}
+  <div class="kpi-card" style="border-color: {% if last.status == 'success' %}#10B981{% elif last.status == 'partial' %}#F59E0B{% elif last.status == 'running' %}#3B82F6{% else %}#EF4444{% endif %}">
+    <div class="text-xs text-slate-500">마지막 실행</div>
+    <div class="text-sm font-bold text-slate-800 mt-1">{{ last.started_at.strftime('%Y-%m-%d %H:%M') }}</div>
+    <div class="text-xs mt-1">
+      {% if last.status == 'success' %}<span class="badge badge-green">성공</span>
+      {% elif last.status == 'partial' %}<span class="badge badge-red">부분</span>
+      {% elif last.status == 'running' %}<span class="badge badge-blue">실행중</span>
+      {% else %}<span class="badge badge-red">{{ last.status }}</span>{% endif %}
+      {{ last.triggered_by }}
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">파일 처리</div>
+    <div class="text-2xl font-bold text-slate-800 mt-1">{{ last.files_processed }}</div>
+    <div class="text-xs text-slate-400 mt-1">변경 {{ last.files_changed }} · 미매핑 {{ last.files_unmapped }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#10B981">
+    <div class="text-xs text-slate-500">추가된 행</div>
+    <div class="text-2xl font-bold text-green-700 mt-1">+{{ last.rows_added|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#F59E0B">
+    <div class="text-xs text-slate-500">제거된 행</div>
+    <div class="text-2xl font-bold text-amber-700 mt-1">-{{ last.rows_removed|money }}</div>
+  </div>
+  {% else %}
+  <div class="kpi-card col-span-4">
+    <div class="text-sm text-slate-500">아직 동기화가 실행된 적이 없습니다.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- 도메인별 현황 -->
+<div class="card mb-6">
+  <h3 class="font-semibold text-slate-700 mb-3">도메인별 추적 파일</h3>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>도메인</th>
+        <th class="num">파일 수</th>
+        <th>최신 파일</th>
+        <th>상태</th>
+        <th class="num">적재행수</th>
+        <th>마지막 처리</th>
+        <th>오류</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in domain_files %}
+      <tr {% if d.last_error %}class="bg-red-50"{% endif %}>
+        <td><span class="badge {% if d.domain == '(미매핑)' %}badge-gray{% else %}badge-blue{% endif %}">{{ d.domain }}</span></td>
+        <td class="num">{{ d.count }}</td>
+        <td class="text-xs">{{ d.latest_file or '-' }}</td>
+        <td>
+          {% if d.status == 'processed' %}<span class="badge badge-green">완료</span>
+          {% elif d.status == 'error' %}<span class="badge badge-red">오류</span>
+          {% elif d.status == 'changed' %}<span class="badge badge-blue">변경</span>
+          {% elif d.status == 'new' %}<span class="badge badge-blue">신규</span>
+          {% elif d.status == 'unmapped' %}<span class="badge badge-gray">미매핑</span>
+          {% else %}<span class="badge badge-gray">{{ d.status or '-' }}</span>{% endif %}
+        </td>
+        <td class="num">{{ d.rows_loaded|money if d.rows_loaded else '' }}</td>
+        <td class="text-xs text-slate-500">{{ d.last_processed.strftime('%Y-%m-%d %H:%M') if d.last_processed else '-' }}</td>
+        <td class="text-xs text-red-600">{{ d.last_error[:80] if d.last_error else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- 실행 이력 -->
+<div class="card">
+  <h3 class="font-semibold text-slate-700 mb-3">최근 실행 이력 (최대 10건)</h3>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>시작</th>
+        <th>소요</th>
+        <th>트리거</th>
+        <th>상태</th>
+        <th class="num">스캔</th>
+        <th class="num">변경</th>
+        <th class="num">처리</th>
+        <th class="num">미매핑</th>
+        <th class="num">오류</th>
+        <th class="num">+행</th>
+        <th class="num">-행</th>
+        <th>요약</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td><a href="/sync/runs/{{ r.id }}" class="text-blue-600 font-mono text-xs">#{{ r.id }}</a></td>
+        <td class="text-xs whitespace-nowrap">{{ r.started_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="text-xs text-slate-500">
+          {% if r.finished_at %}{{ ((r.finished_at - r.started_at).total_seconds())|int }}s{% else %}진행중{% endif %}
+        </td>
+        <td><span class="badge badge-gray">{{ r.triggered_by }}</span></td>
+        <td>
+          {% if r.status == 'success' %}<span class="badge badge-green">성공</span>
+          {% elif r.status == 'partial' %}<span class="badge badge-red">부분</span>
+          {% elif r.status == 'running' %}<span class="badge badge-blue">실행중</span>
+          {% else %}<span class="badge badge-red">{{ r.status }}</span>{% endif %}
+        </td>
+        <td class="num">{{ r.files_scanned }}</td>
+        <td class="num">{{ r.files_changed }}</td>
+        <td class="num">{{ r.files_processed }}</td>
+        <td class="num">{{ r.files_unmapped }}</td>
+        <td class="num {% if r.files_errored > 0 %}text-red-600 font-semibold{% endif %}">{{ r.files_errored }}</td>
+        <td class="num text-green-700">+{{ r.rows_added|money }}</td>
+        <td class="num text-amber-700">-{{ r.rows_removed|money }}</td>
+        <td class="text-xs text-slate-500">{{ r.summary or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card mt-4 bg-slate-50">
+  <h3 class="font-semibold text-slate-700 mb-2">자동 실행 설정</h3>
+  <p class="text-sm text-slate-600 mb-2">
+    매일 정해진 시간에 자동으로 폴더를 스캔해서 변경된 파일을 DB에 반영하려면, 한 번만 다음 배치 파일을 더블클릭하세요.
+  </p>
+  <code class="text-xs bg-white px-3 py-2 rounded border">web_app\register_sync_task.bat</code>
+  <p class="text-xs text-slate-500 mt-2">
+    기본값: 매일 새벽 04:00 실행. 시간 변경은 .bat 파일 내 <code>/ST 04:00</code> 부분을 편집하세요.
+    해제: <code>unregister_sync_task.bat</code>.
+  </p>
+</div>
+
+{% if request.query_params.get('started') %}
+<script>setTimeout(() => location.href = '/sync', 8000);</script>
+{% endif %}
+{% endblock %}

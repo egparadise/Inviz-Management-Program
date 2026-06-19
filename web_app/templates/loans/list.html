@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}차입금 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold text-slate-800">차입금 관리</h1>
+  <a href="/loans/new" class="btn btn-primary">+ 신규 차입</a>
+</div>
+
+<div class="card mb-4">
+  <form method="get" class="flex items-end gap-3">
+    <div class="w-48"><label class="text-xs text-slate-500">구분</label>
+      <select name="kind" class="select">
+        <option value="">전체</option>
+        {% for k in ['은행', '개인', '사채', '개인(임원)'] %}<option value="{{ k }}" {% if filter.kind == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary">필터</button>
+    <a href="/loans" class="btn btn-secondary">초기화</a>
+  </form>
+</div>
+
+<div class="card mb-4">
+  <div class="flex justify-between mb-3">
+    <h3 class="font-semibold text-slate-700">차입금 마스터 ({{ masters|length }}건)</h3>
+    <div class="text-sm text-slate-600">최초 합계 <span class="font-bold">{{ total_initial|money }}</span> · 현재잔액 <span class="font-bold text-red-600">{{ total_balance|money }}</span></div>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>ID</th><th>구분</th><th>장단기</th><th>금융기관/차주</th><th>차입종류</th><th>이자율</th><th>차입일</th><th>만기일</th><th class="num">최초차입</th><th class="num">현재잔액</th><th>상태</th><th></th></tr></thead>
+      <tbody>
+        {% for r in masters %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.id }}</td>
+          <td>{% if r.kind == '은행' %}<span class="badge badge-blue">은행</span>{% elif r.kind and '개인' in r.kind %}<span class="badge badge-red">{{ r.kind }}</span>{% else %}<span class="badge badge-gray">{{ r.kind or '' }}</span>{% endif %}</td>
+          <td>{{ r.term or '' }}</td>
+          <td class="font-medium">{{ r.institution or '' }}</td>
+          <td class="text-xs">{{ r.loan_type or '' }}</td>
+          <td class="num">{{ r.interest_rate|pct if r.interest_rate else '' }}</td>
+          <td class="whitespace-nowrap text-xs">{{ r.start_date|date }}</td>
+          <td class="whitespace-nowrap text-xs">{{ r.end_date|date }}</td>
+          <td class="num">{{ r.initial_amount|money if r.initial_amount else '' }}</td>
+          <td class="num font-semibold">{{ r.current_balance|money if r.current_balance else '' }}</td>
+          <td>{% if r.status == '활성' %}<span class="badge badge-green">활성</span>{% else %}<span class="badge badge-gray">{{ r.status or '' }}</span>{% endif %}</td>
+          <td>
+            <a href="/loans/{{ r.id }}/edit" class="text-blue-600 text-xs">수정</a>
+            <form method="post" action="/loans/{{ r.id }}/delete" class="inline" onsubmit="return confirm('삭제?')">
+              <button class="text-red-600 text-xs ml-2">삭제</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3 class="font-semibold text-slate-700 mb-3">임원 차입금 입출금 내역 (최근 50건)</h3>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>일자</th><th>차주</th><th>적요</th><th class="num">차입(+)</th><th class="num">상환(-)</th><th class="num">잔액</th><th>비고</th></tr></thead>
+      <tbody>
+        {% for m in movements %}
+        <tr>
+          <td class="whitespace-nowrap">{{ m.txn_date|date }}</td>
+          <td>{{ m.lender_name }}</td>
+          <td class="text-xs">{{ m.memo or '' }}</td>
+          <td class="num text-blue-600">{{ m.borrowed|money if m.borrowed else '' }}</td>
+          <td class="num text-red-600">{{ m.repaid|money if m.repaid else '' }}</td>
+          <td class="num font-semibold">{{ m.balance|money if m.balance is not none else '' }}</td>
+          <td class="text-xs text-slate-500">{{ m.note or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,5 @@
+# 도메인이면 자동으로 Let's Encrypt HTTPS 발급. 도메인이 없으면 SITE_ADDRESS=:80 (http, 테스트용)
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy app:8000
+}

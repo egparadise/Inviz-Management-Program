@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}제품별 매출 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">📊 제품별 매출 분석</h1>
+  <a href="/settings/products" class="btn btn-secondary">⚙️ 제품 설정</a>
+</div>
+
+<!-- 필터 -->
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-1 md:grid-cols-6 gap-3">
+    <div class="md:col-span-2">
+      <label class="text-xs text-slate-500">기간 (시작 ~ 종료)</label>
+      <div class="flex gap-2">
+        <input type="date" name="from_date" value="{{ filter.from_date }}" class="input">
+        <span class="self-center text-slate-400">~</span>
+        <input type="date" name="to_date" value="{{ filter.to_date }}" class="input">
+      </div>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">연도</label>
+      <select name="year" class="select">
+        <option value="">전체</option>
+        {% for y in years %}<option value="{{ y }}" {% if filter.year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">월</label>
+      <select name="month" class="select">
+        <option value="">전체</option>
+        {% for m in range(1,13) %}<option value="{{ m }}" {% if filter.month == m %}selected{% endif %}>{{ m }}월</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">분기</label>
+      <select name="quarter" class="select">
+        <option value="">전체</option>
+        {% for q in ['Q1','Q2','Q3','Q4'] %}<option value="{{ q }}" {% if filter.quarter == q %}selected{% endif %}>{{ q }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">거래처</label>
+      <input type="text" name="party" value="{{ filter.party }}" class="input" placeholder="병원/회사">
+    </div>
+    <div class="md:col-span-6 flex gap-2 justify-end pt-1 border-t">
+      <button class="btn btn-primary px-6">확인</button>
+      <a href="/product-sales" class="btn btn-secondary">초기화</a>
+      <button type="button" class="btn btn-secondary" onclick="qr('this_month')">이번 달</button>
+      <button type="button" class="btn btn-secondary" onclick="qr('ytd')">올해 누계</button>
+    </div>
+  </form>
+</div>
+
+<!-- KPI -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <div class="kpi-card"><div class="text-xs text-slate-500">건수</div><div class="text-2xl font-bold text-slate-800 mt-1">{{ tot_cnt|money }}</div></div>
+  <div class="kpi-card"><div class="text-xs text-slate-500">공급가액 합계</div><div class="text-2xl font-bold mt-1" style="color:var(--inviz-purple);">{{ tot_supply|money }}<span class="text-sm font-normal text-slate-400 ml-1">원</span></div></div>
+  <div class="kpi-card" style="border-color:var(--inviz-orange);"><div class="text-xs text-slate-500">부가세 합계</div><div class="text-2xl font-bold text-amber-700 mt-1">{{ tot_vat|money }}</div></div>
+  <div class="kpi-card" style="border-color:var(--inviz-orange);"><div class="text-xs text-slate-500">총 합계</div><div class="text-2xl font-bold mt-1" style="color:var(--inviz-purple);">{{ tot_total|money }}</div></div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <!-- 제품별 표 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color:var(--inviz-purple);">제품·상품별 매출</h3>
+    <table class="table">
+      <thead><tr><th>제품</th><th class="num">건수</th><th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th><th class="num">비중</th></tr></thead>
+      <tbody>
+        {% for p in products %}
+        <tr>
+          <td><span class="badge badge-purple">{{ p.code }}</span> {{ p.name }}</td>
+          <td class="num text-slate-500">{{ p.count }}</td>
+          <td class="num font-semibold">{{ p.supply|money }}</td>
+          <td class="num text-slate-500">{{ p.vat|money }}</td>
+          <td class="num font-semibold">{{ p.total|money }}</td>
+          <td class="num">
+            <div class="flex items-center gap-1 justify-end">
+              <div style="width:40px; height:6px; background:#EEE; border-radius:3px; overflow:hidden;">
+                <div style="height:100%; width:{{ p.pct }}%; background:var(--inviz-orange);"></div>
+              </div>
+              {{ p.pct|pct }}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not products %}<tr><td colspan="6" class="text-center text-slate-400 py-4">데이터 없음</td></tr>{% endif %}
+      </tbody>
+      {% if products %}
+      <tfoot><tr class="total-row"><td>합계</td><td class="num">{{ tot_cnt }}</td><td class="num">{{ tot_supply|money }}</td><td class="num">{{ tot_vat|money }}</td><td class="num">{{ tot_total|money }}</td><td class="num">100%</td></tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+
+  <!-- 제품별 차트 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color:var(--inviz-purple);">제품별 비중</h3>
+    <canvas id="prodChart" height="220"></canvas>
+  </div>
+</div>
+
+<!-- 거래처별 -->
+<div class="card mb-6">
+  <h3 class="font-semibold mb-3" style="color:var(--inviz-purple);">거래처별 매출 (TOP 15, 현재 필터 기준)</h3>
+  <table class="table">
+    <thead><tr><th class="w-8">#</th><th>거래처</th><th class="num">건수</th><th class="num">공급가액</th></tr></thead>
+    <tbody>
+      {% for c in parties %}
+      <tr><td class="text-slate-400">{{ loop.index }}</td><td>{{ c.name }}</td><td class="num text-slate-500">{{ c.count }}</td><td class="num font-semibold">{{ c.supply|money }}</td></tr>
+      {% endfor %}
+      {% if not parties %}<tr><td colspan="4" class="text-center text-slate-400 py-4">데이터 없음</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+
+<!-- 월별 추이 (연도) -->
+<div class="card">
+  <h3 class="font-semibold mb-3" style="color:var(--inviz-purple);">{{ trend_year }}년 제품별 월 추이</h3>
+  <canvas id="trendChart" height="120"></canvas>
+</div>
+
+<script>
+function qr(kind){
+  const now=new Date(), fmt=d=>d.toISOString().slice(0,10);
+  let from,to;
+  if(kind==='this_month'){from=new Date(now.getFullYear(),now.getMonth(),1);to=new Date(now.getFullYear(),now.getMonth()+1,0);}
+  else if(kind==='ytd'){from=new Date(now.getFullYear(),0,1);to=now;}
+  document.querySelector('input[name=from_date]').value=fmt(from);
+  document.querySelector('input[name=to_date]').value=fmt(to);
+  document.querySelector('select[name=year]').value='';
+  document.querySelector('select[name=month]').value='';
+  document.querySelector('select[name=quarter]').value='';
+}
+
+const PALETTE = ['#6B2C91','#F47521','#8B4FAF','#FB923C','#A78BDA','#FBBF24','#C4B5FD','#10B981','#60A5FA','#F87171'];
+
+// 제품별 도넛
+const pData = {{ products | map(attribute='supply') | list | tojson }};
+const pLabels = {{ products | map(attribute='name') | list | tojson }};
+if (pData.length) {
+  new Chart(document.getElementById('prodChart'), {
+    type: 'doughnut',
+    data: { labels: pLabels, datasets: [{ data: pData, backgroundColor: PALETTE }] },
+    options: { plugins: { legend: { position: 'right', labels:{ font:{size:11} } } } }
+  });
+}
+
+// 월별 추이 (제품별 라인)
+const mbp = {{ months_by_product | tojson }};
+const trendLabels = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+const dsets = Object.keys(mbp).map((name,i)=>({ label:name, data:mbp[name], borderColor:PALETTE[i%PALETTE.length], backgroundColor:'transparent', tension:0.3 }));
+if (dsets.length) {
+  new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: { labels: trendLabels, datasets: dsets },
+    options: { plugins:{ legend:{ position:'bottom', labels:{font:{size:11}} } }, scales:{ y:{ ticks:{ callback:v=>(v/1000000).toFixed(0)+'M' } } } }
+  });
+}
+</script>
+{% endblock %}

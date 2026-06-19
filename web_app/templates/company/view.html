@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}회사 정보 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">
+    🏢 회사 기본정보
+  </h1>
+  <div class="flex gap-2">
+    {% if edit %}
+    <a href="/company" class="btn btn-secondary">취소</a>
+    <button form="company-form" type="submit" class="btn btn-accent">💾 저장</button>
+    {% else %}
+    <a href="/company?edit=1" class="btn btn-primary">✏️ 수정</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if request.query_params.get('saved') %}
+<div class="card mb-4 bg-green-50 border border-green-200">
+  <div class="text-sm text-green-900"><strong>✓ 회사 정보가 저장되었습니다.</strong> 보고서의 {{ '{{회사명}}' }}, {{ '{{대표자}}' }} 등 항목에 자동 반영됩니다.</div>
+</div>
+{% endif %}
+
+{% if not edit %}
+<!-- ============ 조회 모드 ============ -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+  <!-- 기본 정보 -->
+  <div class="card lg:col-span-2">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">기본 정보</h3>
+    <table class="table">
+      <tbody>
+        <tr><th style="width:140px;">회사명</th><td class="font-semibold">{{ ci.name or '-' }}{% if ci.name_en %} <span class="text-slate-400 text-xs">({{ ci.name_en }})</span>{% endif %}</td></tr>
+        <tr><th>대표자</th><td>{{ ci.ceo or '-' }}</td></tr>
+        <tr><th>사업자등록번호</th><td>{{ ci.biz_no or '-' }}</td></tr>
+        <tr><th>법인등록번호</th><td>{{ ci.corp_no or '-' }}</td></tr>
+        <tr><th>설립일</th><td>{{ ci.established or '-' }}</td></tr>
+        <tr><th>업종/사업분야</th><td>{{ ci.industry or '-' }}</td></tr>
+        <tr><th>주소</th><td>{{ ci.address or '-' }}</td></tr>
+        <tr><th>전화 / 팩스</th><td>{{ ci.phone or '-' }}{% if ci.fax %} / {{ ci.fax }}{% endif %}</td></tr>
+        <tr><th>이메일</th><td>{{ ci.email or '-' }}</td></tr>
+        <tr><th>홈페이지</th><td>{% if ci.website %}<a href="{{ ci.website }}" target="_blank" class="text-purple-700 hover:underline">{{ ci.website }}</a>{% else %}-{% endif %}</td></tr>
+        {% if ci.note %}<tr><th>비고</th><td class="text-sm text-slate-600">{{ ci.note }}</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 핵심 지표 -->
+  <div class="space-y-4">
+    <div class="kpi-card">
+      <div class="text-xs text-slate-500">자본금</div>
+      <div class="text-2xl font-bold mt-1" style="color: var(--inviz-purple);">{{ ci.capital|money }}<span class="text-sm font-normal text-slate-400 ml-1">원</span></div>
+    </div>
+    <div class="kpi-card" style="border-color: var(--inviz-orange);">
+      <div class="text-xs text-slate-500">임직원 수</div>
+      <div class="text-2xl font-bold mt-1 text-amber-700">{{ ci.employee_count|money }}<span class="text-sm font-normal text-slate-400 ml-1">명</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="text-xs text-slate-500">임원 / 주주</div>
+      <div class="text-2xl font-bold mt-1 text-slate-700">{{ executives|length }} / {{ shareholders|length }}<span class="text-sm font-normal text-slate-400 ml-1">명</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <!-- 임원 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">임원 현황 ({{ executives|length }}명)</h3>
+    <table class="table">
+      <thead><tr><th>직위</th><th>성명</th><th>비고</th></tr></thead>
+      <tbody>
+        {% for e in executives %}
+        <tr><td><span class="badge badge-purple">{{ e.title or '-' }}</span></td><td class="font-medium">{{ e.name }}</td><td class="text-xs text-slate-500">{{ e.note or '' }}</td></tr>
+        {% endfor %}
+        {% if not executives %}<tr><td colspan="3" class="text-center text-slate-400 py-4">등록된 임원이 없습니다</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 주주 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">주주 현황 ({{ shareholders|length }}명)</h3>
+    <table class="table">
+      <thead><tr><th>주주명</th><th class="num">보유주식</th><th class="num">지분율</th><th>비고</th></tr></thead>
+      <tbody>
+        {% for s in shareholders %}
+        <tr><td class="font-medium">{{ s.name }}</td><td class="num">{{ s.shares or '-' }}</td><td class="num">{{ s.ratio or '-' }}{% if s.ratio and '%' not in s.ratio %}%{% endif %}</td><td class="text-xs text-slate-500">{{ s.note or '' }}</td></tr>
+        {% endfor %}
+        {% if not shareholders %}<tr><td colspan="4" class="text-center text-slate-400 py-4">등록된 주주가 없습니다</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<!-- ============ 수정 모드 ============ -->
+<form id="company-form" method="post" action="/company/save">
+  <div class="card mb-4">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">기본 정보</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <label class="block"><span class="text-xs text-slate-500">회사명</span><input name="name" value="{{ ci.name or '' }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">영문명</span><input name="name_en" value="{{ ci.name_en or '' }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">대표자</span><input name="ceo" value="{{ ci.ceo or '' }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">설립일</span><input name="established" value="{{ ci.established or '' }}" class="input mt-1" placeholder="예: 2015-03-01"></label>
+      <label class="block"><span class="text-xs text-slate-500">사업자등록번호</span><input name="biz_no" value="{{ ci.biz_no or '' }}" class="input mt-1" placeholder="000-00-00000"></label>
+      <label class="block"><span class="text-xs text-slate-500">법인등록번호</span><input name="corp_no" value="{{ ci.corp_no or '' }}" class="input mt-1"></label>
+      <label class="block md:col-span-2"><span class="text-xs text-slate-500">업종/사업분야</span><input name="industry" value="{{ ci.industry or '' }}" class="input mt-1"></label>
+      <label class="block md:col-span-2"><span class="text-xs text-slate-500">주소</span><input name="address" value="{{ ci.address or '' }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">전화</span><input name="phone" value="{{ ci.phone or '' }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">팩스</span><input name="fax" value="{{ ci.fax or '' }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">이메일</span><input name="email" value="{{ ci.email or '' }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">홈페이지</span><input name="website" value="{{ ci.website or '' }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">자본금 (원)</span><input name="capital" value="{{ ci.capital|round|int if ci.capital else '' }}" class="input mt-1" inputmode="numeric"></label>
+      <label class="block"><span class="text-xs text-slate-500">임직원 수 (명)</span><input name="employee_count" value="{{ ci.employee_count or '' }}" class="input mt-1" inputmode="numeric"></label>
+      <label class="block md:col-span-2"><span class="text-xs text-slate-500">비고</span><input name="note" value="{{ ci.note or '' }}" class="input mt-1"></label>
+    </div>
+  </div>
+
+  <!-- 임원 편집 -->
+  <div class="card mb-4">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-semibold" style="color: var(--inviz-purple);">임원 현황</h3>
+      <button type="button" class="btn btn-secondary" onclick="addRow('exec-rows', execRow)">+ 임원 추가</button>
+    </div>
+    <table class="table">
+      <thead><tr><th style="width:30%;">직위</th><th style="width:30%;">성명</th><th>비고</th><th style="width:40px;"></th></tr></thead>
+      <tbody id="exec-rows">
+        {% for e in executives %}
+        <tr>
+          <td><input name="exec_title" value="{{ e.title or '' }}" class="input" placeholder="대표이사/이사/감사"></td>
+          <td><input name="exec_name" value="{{ e.name or '' }}" class="input"></td>
+          <td><input name="exec_note" value="{{ e.note or '' }}" class="input"></td>
+          <td><button type="button" class="text-red-600 text-sm" onclick="this.closest('tr').remove()">✕</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 주주 편집 -->
+  <div class="card mb-4">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-semibold" style="color: var(--inviz-purple);">주주 현황</h3>
+      <button type="button" class="btn btn-secondary" onclick="addRow('sh-rows', shRow)">+ 주주 추가</button>
+    </div>
+    <table class="table">
+      <thead><tr><th style="width:30%;">주주명</th><th style="width:20%;">보유주식</th><th style="width:20%;">지분율</th><th>비고</th><th style="width:40px;"></th></tr></thead>
+      <tbody id="sh-rows">
+        {% for s in shareholders %}
+        <tr>
+          <td><input name="sh_name" value="{{ s.name or '' }}" class="input"></td>
+          <td><input name="sh_shares" value="{{ s.shares or '' }}" class="input" inputmode="numeric"></td>
+          <td><input name="sh_ratio" value="{{ s.ratio or '' }}" class="input" placeholder="%"></td>
+          <td><input name="sh_note" value="{{ s.note or '' }}" class="input"></td>
+          <td><button type="button" class="text-red-600 text-sm" onclick="this.closest('tr').remove()">✕</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex justify-end gap-2">
+    <a href="/company" class="btn btn-secondary">취소</a>
+    <button type="submit" class="btn btn-accent px-8">💾 저장</button>
+  </div>
+</form>
+
+<script>
+  function execRow() {
+    return `<tr>
+      <td><input name="exec_title" class="input" placeholder="대표이사/이사/감사"></td>
+      <td><input name="exec_name" class="input"></td>
+      <td><input name="exec_note" class="input"></td>
+      <td><button type="button" class="text-red-600 text-sm" onclick="this.closest('tr').remove()">✕</button></td>
+    </tr>`;
+  }
+  function shRow() {
+    return `<tr>
+      <td><input name="sh_name" class="input"></td>
+      <td><input name="sh_shares" class="input" inputmode="numeric"></td>
+      <td><input name="sh_ratio" class="input" placeholder="%"></td>
+      <td><input name="sh_note" class="input"></td>
+      <td><button type="button" class="text-red-600 text-sm" onclick="this.closest('tr').remove()">✕</button></td>
+    </tr>`;
+  }
+  function addRow(tbodyId, rowFn) {
+    document.getElementById(tbodyId).insertAdjacentHTML('beforeend', rowFn());
+  }
+</script>
+{% endif %}
+{% endblock %}

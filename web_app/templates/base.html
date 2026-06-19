@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}인비즈 경영관리{% endblock %}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+/* 인비즈 브랜드 컬러 */
+:root {
+  --inviz-purple: #6B2C91;
+  --inviz-purple-dark: #4F1D6B;
+  --inviz-orange: #F47521;
+  --inviz-orange-dark: #D85F11;
+  --inviz-purple-50: #F5EDFA;
+}
+body { font-family: 'Pretendard', 'Apple SD Gothic Neo', -apple-system, sans-serif; background: #F8FAFC; }
+.brand-bar { background: linear-gradient(90deg, var(--inviz-purple) 0%, #5A2078 100%); }
+/* 로고: 어두운 바 위에 흰색 글자가 보이도록 흰색 영역 둠 */
+.brand-logo-wrap {
+  background: white;
+  padding: 6px 14px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+.brand-logo-img {
+  height: 32px;
+  width: auto;
+  display: block;
+}
+/* 브라우저 탭 스타일 네비게이션 — 항목은 항상 가로(한 줄), 넘치면 가로 스크롤 */
+.nav-tabs {
+  display: flex; align-items: flex-end; gap: 3px;
+  overflow-x: auto; overflow-y: hidden;
+  flex-wrap: nowrap;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.4) transparent;
+}
+.nav-tabs::-webkit-scrollbar { height: 6px; }
+.nav-tabs::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.35); border-radius: 3px; }
+.nav-link {
+  flex-shrink: 0;
+  white-space: nowrap;          /* 글자 세로 깨짐 방지 — 항상 가로 */
+  padding: 8px 14px;
+  border-radius: 8px 8px 0 0;   /* 탭처럼 위쪽만 둥글게 */
+  color: #E9D8F4; font-size: 14px;
+  transition: all 0.15s;
+  border: 1px solid transparent; border-bottom: none;
+  position: relative; top: 1px;
+}
+.nav-link:hover { background: rgba(255,255,255,0.14); color: white; }
+.nav-link.active {
+  background: #F8FAFC;          /* 본문 배경색과 동일 → '열린 탭'처럼 연결 */
+  color: var(--inviz-purple); font-weight: 700;
+  border-top: 3px solid var(--inviz-orange);
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.18);
+}
+
+/* ===== 좌측 사이드바 네비게이션 (크기조정·반응형) ===== */
+:root { --sidenav-w: 208px; }
+.side-nav {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sidenav-w); z-index: 40;
+  background: linear-gradient(180deg, var(--inviz-purple) 0%, #4F1D6B 100%);
+  display: flex; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+  box-shadow: 2px 0 10px rgba(0,0,0,0.12);
+}
+/* 드래그 크기조정 핸들 (데스크톱) */
+#sideResizer {
+  position: fixed; top: 0; bottom: 0; width: 6px; z-index: 41;
+  left: calc(var(--sidenav-w) - 3px); cursor: col-resize;
+  background: transparent;
+}
+#sideResizer:hover, #sideResizer.dragging { background: rgba(244,117,33,0.5); }
+#mobileMenuBtn { display: none; }
+#sideBackdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 39; }
+.side-nav::-webkit-scrollbar { width: 6px; }
+.side-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 3px; }
+.side-brand {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 14px 12px 12px; flex-shrink: 0; text-align: center;
+}
+.side-links { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; flex: 1; }
+.side-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px;
+  color: #E9D8F4; font-size: 14px; white-space: nowrap;
+  transition: background 0.12s, color 0.12s, transform 0.12s;
+  border-left: 3px solid transparent;
+}
+.side-link .ic { width: 20px; text-align: center; font-size: 15px; flex-shrink: 0; }
+.side-link:hover { background: rgba(255,255,255,0.13); color: #fff; transform: translateX(2px); }
+.side-link.active {
+  background: #F8FAFC; color: var(--inviz-purple); font-weight: 700;
+  border-left: 3px solid var(--inviz-orange);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+/* 펼침 하위메뉴 */
+.side-grp { display: flex; flex-direction: column; }
+.side-chev { color: #E9D8F4; font-size: 12px; padding: 0 6px; cursor: pointer; transition: transform 0.2s; flex-shrink: 0; }
+.side-grp.open .side-chev { transform: rotate(180deg); }
+.side-children { overflow: hidden; max-height: 0; transition: max-height 0.22s ease; display: flex; flex-direction: column; gap: 2px; }
+.side-grp.open .side-children { max-height: 400px; margin-top: 2px; }
+.side-sub { padding-left: 30px !important; font-size: 13px; }
+.side-sub .ic { font-size: 13px; }
+.side-foot {
+  padding: 8px; flex-shrink: 0;
+  border-top: 1px solid rgba(255,255,255,0.15);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.main-col { margin-left: var(--sidenav-w); min-height: 100vh; }
+
+/* 태블릿: 아이콘만 표시 */
+@media (max-width: 1024px) and (min-width: 641px) {
+  .side-nav { width: 64px !important; }
+  .side-brand .lbl, .side-link .lbl { display: none; }
+  .main-col { margin-left: 64px !important; }
+  #sideResizer { display: none; }
+}
+/* 스마트폰: 오프캔버스 드로어 */
+@media (max-width: 640px) {
+  .side-nav { width: 230px !important; transform: translateX(-100%); transition: transform 0.22s ease; }
+  .side-nav.open { transform: none; }
+  .main-col { margin-left: 0 !important; }
+  #sideResizer { display: none; }
+  #mobileMenuBtn { display: inline-flex !important; }
+  #sideBackdrop.show { display: block; }
+}
+
+/* ===== 현재 AI 모델 배지 (AI 사용 위치 표시) ===== */
+.ai-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+  padding: 2px 9px; border-radius: 9999px;
+  background: var(--inviz-purple-50); color: var(--inviz-purple);
+  border: 1px solid #E9D8F4; vertical-align: middle;
+}
+.ai-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: #10B981; flex-shrink: 0; }
+.ai-badge.off { background: #FFF7ED; color: var(--inviz-orange-dark); border-color: #FED7AA; }
+.ai-badge.off .dot { background: #F59E0B; }
+.ai-badge a { text-decoration: underline; }
+
+/* ===== 페이지 '창 열림' 애니메이션 ===== */
+@keyframes page-open {
+  0%   { opacity: 0; transform: scale(0.97) translateY(12px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: none; }
+}
+.page-open { animation: page-open 0.30s cubic-bezier(0.16,1,0.3,1); transform-origin: top center; }
+.btn { padding: 8px 14px; border-radius: 6px; font-size: 14px; font-weight: 500; transition: all 0.15s; cursor: pointer; border: 0; }
+.btn-primary { background: var(--inviz-purple); color: white; }
+.btn-primary:hover { background: var(--inviz-purple-dark); }
+.btn-accent { background: var(--inviz-orange); color: white; }
+.btn-accent:hover { background: var(--inviz-orange-dark); }
+.btn-secondary { background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0; }
+.btn-secondary:hover { background: #E2E8F0; }
+.btn-danger { background: #EF4444; color: white; }
+.btn-danger:hover { background: #DC2626; }
+.input, .select, .textarea { width: 100%; padding: 6px 10px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 14px; }
+.input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--inviz-purple); box-shadow: 0 0 0 3px rgba(107,44,145,0.15); }
+.card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.kpi-card { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid var(--inviz-purple); }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th { background: var(--inviz-purple-50); padding: 8px 10px; text-align: left; font-weight: 600; font-size: 12px; color: var(--inviz-purple-dark); border-bottom: 1px solid #E2E8F0; }
+.table td { padding: 8px 10px; border-bottom: 1px solid #F1F5F9; }
+.table tr:hover td { background: #FAFAF9; }
+.table tr.total-row td { background: #FEF3E2; font-weight: 700; border-top: 2px solid var(--inviz-orange); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.badge-blue { background: #DBEAFE; color: #1E40AF; }
+.badge-purple { background: var(--inviz-purple-50); color: var(--inviz-purple); }
+.badge-orange { background: #FFEDD5; color: var(--inviz-orange-dark); }
+.badge-green { background: #D1FAE5; color: #065F46; }
+.badge-red { background: #FEE2E2; color: #991B1B; }
+.badge-gray { background: #F1F5F9; color: #475569; }
+.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* ===== AI 분석 중 애니메이션 ===== */
+/* 회전 스피너 (이중 링) */
+.ai-spinner {
+  width: 56px; height: 56px;
+  position: relative;
+  display: inline-block;
+}
+.ai-spinner::before, .ai-spinner::after {
+  content: ''; position: absolute; inset: 0;
+  border-radius: 50%; border: 3px solid transparent;
+}
+.ai-spinner::before {
+  border-top-color: var(--inviz-purple);
+  border-right-color: var(--inviz-purple);
+  animation: ai-spin 1s linear infinite;
+}
+.ai-spinner::after {
+  inset: 8px;
+  border-bottom-color: var(--inviz-orange);
+  border-left-color: var(--inviz-orange);
+  animation: ai-spin 1.4s linear reverse infinite;
+}
+@keyframes ai-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 가운데 빛나는 점 */
+.ai-spinner-core {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  animation: ai-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ai-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.7; }
+}
+
+/* 점 3개 점프 (typing indicator) */
+.ai-dots { display: inline-flex; gap: 4px; align-items: center; }
+.ai-dots span {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--inviz-purple);
+  animation: ai-bounce 1.4s ease-in-out infinite;
+}
+.ai-dots span:nth-child(2) { animation-delay: 0.16s; background: #8B4FAF; }
+.ai-dots span:nth-child(3) { animation-delay: 0.32s; background: var(--inviz-orange); }
+@keyframes ai-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-8px); opacity: 1; }
+}
+
+/* 진행바 (단계 표시) */
+.ai-progress {
+  height: 4px; background: #E2E8F0; border-radius: 2px; overflow: hidden;
+  position: relative;
+}
+.ai-progress-bar {
+  position: absolute; top: 0; left: 0; height: 100%;
+  background: linear-gradient(90deg, var(--inviz-purple), var(--inviz-orange));
+  border-radius: 2px;
+  transition: width 0.5s ease-out;
+}
+.ai-progress-shimmer {
+  position: absolute; top: 0; left: 0; height: 100%; width: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  animation: ai-shimmer 1.5s linear infinite;
+}
+@keyframes ai-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* 단계 노드 (체크리스트) */
+.ai-step {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0; font-size: 12px;
+  transition: all 0.3s;
+}
+.ai-step .ai-step-icon {
+  width: 18px; height: 18px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: bold;
+  background: #E2E8F0; color: #94A3B8;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+.ai-step.active .ai-step-icon {
+  background: var(--inviz-orange); color: white;
+  animation: ai-pulse 1s ease-in-out infinite;
+  box-shadow: 0 0 0 4px rgba(244, 117, 33, 0.2);
+}
+.ai-step.done .ai-step-icon {
+  background: #10B981; color: white;
+}
+.ai-step.done .ai-step-icon::before { content: '✓'; }
+.ai-step .ai-step-text { color: #94A3B8; }
+.ai-step.active .ai-step-text { color: #475569; font-weight: 600; }
+.ai-step.done .ai-step-text { color: #64748B; }
+
+/* 카서 (타이핑 효과 — LLM 토큰 스트림 중) */
+.ai-cursor::after {
+  content: '▊'; color: var(--inviz-purple);
+  animation: ai-cursor-blink 0.8s steps(2) infinite;
+  margin-left: 1px;
+}
+@keyframes ai-cursor-blink {
+  50% { opacity: 0; }
+}
+/* 접이식 섹션 (데이터 결과 / 참고 자료) — 기본 접힘, 클릭 시 펼침 */
+.collapse-head {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 6px 10px; margin: 0;
+  border: 1px solid #ede9fe; background: #faf8ff; border-radius: 8px;
+  cursor: pointer; text-align: left; transition: background .15s;
+}
+.collapse-head:hover { background: #f1ecfe; }
+.collapse-chev { color: #9ca3af; font-size: 11px; user-select: none; white-space: nowrap; }
+.collapse-body { padding: 4px 2px 0; }
+</style>
+<!-- 설정 기반 동적 스타일 (글자 크기 / 입력창 크기) -->
+<style>
+  html { font-size: {{ setting('ui_font_scale','100') }}%; }
+  {% set isz = setting('ui_input_size','normal') %}
+  {% if isz == 'compact' %}
+  .input, .select, .textarea { padding: 4px 8px; font-size: 13px; }
+  {% elif isz == 'large' %}
+  .input, .select, .textarea { padding: 10px 14px; font-size: 16px; }
+  {% endif %}
+</style>
+</head>
+<body>
+{% if request.url.path != '/login' %}
+{% set p = request.url.path %}
+<!-- 좌측 사이드바 네비게이션 -->
+<aside id="sideNav" class="side-nav">
+  <a href="/" class="side-brand">
+    {% if setting('ui_logo_show','1') != '0' %}
+    <span class="brand-logo-wrap" style="padding:4px 8px;">
+      <img src="/static/img/{{ setting('ui_logo_custom','') or 'inviz_logo.png' }}" alt="Inviz" class="brand-logo-img" style="height:26px;"
+           onerror="this.onerror=null; this.src='/static/img/inviz_logo.svg';">
+    </span>
+    {% endif %}
+    <span class="lbl font-bold text-white text-sm" style="letter-spacing:-0.3px; white-space:nowrap;">{{ setting('app_title','경영관리 시스템') }}</span>
+  </a>
+  <nav class="side-links">
+    {% for it in nav_items() %}
+    {% set p_active = (it.exact and p == it.path) or (not it.exact and p.startswith(it.path)) %}
+    {% if it.children %}
+      {% set ca = namespace(v=False) %}
+      {% for ch in it.children %}{% if p.startswith(ch.path) %}{% set ca.v = True %}{% endif %}{% endfor %}
+      <div class="side-grp {% if p_active or ca.v %}open{% endif %}">
+        <div class="side-link side-parent {% if p_active %}active{% endif %}" style="display:flex; align-items:center;">
+          <a href="{{ it.path }}" style="flex:1; display:flex; align-items:center; gap:10px; color:inherit;">
+            <span class="ic">{{ it.icon }}</span><span class="lbl">{{ it.label }}</span>
+          </a>
+          <span class="lbl side-chev" onclick="event.preventDefault(); toggleGroup(this);" title="펼치기/접기">▾</span>
+        </div>
+        <div class="side-children">
+          {% for ch in it.children %}
+          <a href="{{ ch.path }}" class="side-link side-sub {% if p.startswith(ch.path) %}active{% endif %}">
+            <span class="ic">{{ ch.icon }}</span><span class="lbl">{{ ch.label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
+    <a href="{{ it.path }}" class="side-link {% if p_active %}active{% endif %}">
+      <span class="ic">{{ it.icon }}</span><span class="lbl">{{ it.label }}</span>
+    </a>
+    {% endif %}
+    {% endfor %}
+  </nav>
+  <div class="side-foot">
+    <a href="/settings" class="side-link {% if p.startswith('/settings') %}active{% endif %}"><span class="ic">⚙️</span><span class="lbl">설정</span></a>
+    <a href="/logout" class="side-link"><span class="ic">🚪</span><span class="lbl">로그아웃</span></a>
+    {% if request.client and request.client.host not in ('127.0.0.1', '::1', 'localhost') %}
+    <div class="lbl" style="padding:6px 12px; border-top:1px solid rgba(255,255,255,0.12); margin-top:4px;">
+      <div style="color:#E9D8F4; font-size:11px;">🌐 웹 접속 중</div>
+      <div style="color:#C4B5FD; font-size:10px;">IP {{ request.client.host }}</div>
+      <div style="color:#C4B5FD; font-size:10px;">⏱ {{ now_str() }}</div>
+    </div>
+    {% endif %}
+  </div>
+</aside>
+<!-- 사이드바 크기조정 핸들 + 모바일 백드롭 -->
+<div id="sideResizer" title="드래그하여 메뉴 너비 조정"></div>
+<div id="sideBackdrop" onclick="closeMobileNav()"></div>
+
+<!-- 우측 메인 컬럼 -->
+<div class="main-col">
+<!-- 상단 챗 검색바 — 입력은 패널을 열기만 함. 파일 드래그앤드롭 지원 -->
+<div id="chatBar" class="bg-white border-b border-slate-200 shadow-sm relative">
+  <div class="container mx-auto px-6 py-2 flex items-center gap-3">
+    <button type="button" id="mobileMenuBtn" class="btn btn-secondary px-2 py-1" onclick="toggleMobileNav()" title="메뉴">☰</button>
+    <span class="text-xs font-bold flex items-center gap-1" style="color: var(--inviz-purple);">
+      <span style="font-size:1.2em;">🤖</span> AI 검색
+    </span>
+    <a href="/settings" class="ai-badge {% if not ai_ready() %}off{% endif %}" title="현재 사용 중인 AI 모델 — 클릭하면 설정에서 변경">
+      <span class="dot"></span>🧠 {{ ai_label() }}
+    </a>
+    <form id="chatBarForm" class="flex-1 flex gap-2" onsubmit="return submitFromBar(event);">
+      <input id="chatBarInput" type="text" class="input flex-1"
+        placeholder="질문하거나, 파일을 이 곳에 끌어다 놓으면 AI가 분석합니다 (Excel·CSV·PDF). Ctrl+K로 포커스."
+        autocomplete="off">
+      <button type="submit" class="btn btn-accent" id="chatBarSubmit">검색 →</button>
+      <button type="button" class="btn btn-secondary" onclick="toggleChatPanel()">💬 채팅</button>
+      <button type="button" class="btn btn-secondary flex items-center gap-1" onclick="document.getElementById('dndFileInput').click()" title="파일을 선택하거나 검색창에 끌어다 놓으면 AI가 자동으로 매출·매입·급여·비용으로 분류">📎 AI 분류</button>
+    </form>
+  </div>
+  <!-- 드래그앤드롭 오버레이 -->
+  <div id="dndOverlay" class="hidden absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
+       style="background: rgba(107,44,145,0.10); border: 2.5px dashed var(--inviz-purple);">
+    <div class="bg-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3" style="border:1px solid var(--inviz-purple);">
+      <span style="font-size:1.8em;">📥</span>
+      <div>
+        <div class="font-bold text-sm" style="color: var(--inviz-purple);">파일을 놓으면 AI가 분석합니다</div>
+        <div class="text-xs text-slate-500">Excel · CSV · PDF — 매출/매입/급여/비용 자동 분류</div>
+      </div>
+    </div>
+  </div>
+  <!-- 숨은 업로드 폼 (드롭/파일선택 → /ai-classify/analyze 로 전송) -->
+  <form id="dndForm" method="post" action="/ai-classify/analyze" enctype="multipart/form-data" class="hidden">
+    <input type="file" id="dndFileInput" name="file" accept=".xlsx,.xlsm,.xls,.csv,.pdf">
+    <input type="hidden" name="model" value="{{ setting('ai_default_model','llama3.1:latest') }}">
+  </form>
+</div>
+
+<!-- ChatGPT 스타일 우측 사이드 패널 -->
+<aside id="chatPanel" class="fixed right-0 top-0 h-full bg-white shadow-2xl transform translate-x-full transition-transform z-50 flex flex-col"
+       style="width: 560px; max-width: 95vw;">
+  <!-- 헤더 -->
+  <div class="brand-bar text-white p-3 flex items-center justify-between flex-shrink-0">
+    <div class="flex items-center gap-2">
+      <span style="font-size:1.4em;">🤖</span>
+      <div>
+        <div class="font-bold text-sm">인비즈 AI 어시스턴트</div>
+        <div class="text-xs opacity-80" id="chatModelLabel">🧠 {{ ai_label() }}</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-1">
+      <button onclick="clearChat()" title="대화 지우기" class="text-white hover:bg-white/20 px-2 py-1 rounded text-xs">🗑</button>
+      <button onclick="toggleChatPanel()" title="닫기" class="text-white text-2xl leading-none px-2 hover:opacity-70">×</button>
+    </div>
+  </div>
+
+  <!-- 모드 토글 + 모델 선택 -->
+  <div class="border-b bg-slate-50 px-3 py-2 text-xs flex items-center gap-2 flex-wrap flex-shrink-0">
+    <span class="text-slate-500 font-semibold">모드:</span>
+    {% set dmode = setting('ai_default_mode','auto') %}
+    <label class="flex items-center gap-1 cursor-pointer">
+      <input type="radio" name="chatMode" value="auto" {% if dmode=='auto' %}checked{% endif %}> <span>자동</span>
+    </label>
+    <label class="flex items-center gap-1 cursor-pointer" title="벡터 DB 검색 + LLM 답변. 자유 질문에 권장.">
+      <input type="radio" name="chatMode" value="rag" {% if dmode=='rag' %}checked{% endif %}> <span>🔍 RAG 검색</span>
+    </label>
+    <label class="flex items-center gap-1 cursor-pointer" title="LLM 호출 없이 벡터 검색 결과만 표시. 인덱스 품질 테스트용.">
+      <input type="radio" name="chatMode" value="search" {% if dmode=='search' %}checked{% endif %}> <span>🧪 검색만</span>
+    </label>
+    <span class="border-l border-slate-300 mx-1 h-4"></span>
+    {% set dm = setting('ai_default_model','llama3.1:latest') %}
+    <select id="chatModelSel" class="text-xs border rounded px-1 py-0.5">
+      <option value="llama3.1:latest" {% if dm=='llama3.1:latest' %}selected{% endif %}>llama3.1 (8B)</option>
+      <option value="llama3.2:latest" {% if dm=='llama3.2:latest' %}selected{% endif %}>llama3.2 (3B, 빠름)</option>
+      <option value="glm-4.7-flash:latest" {% if dm=='glm-4.7-flash:latest' %}selected{% endif %}>GLM 4.7 (한국어↑)</option>
+      <option value="llama3:latest" {% if dm=='llama3:latest' %}selected{% endif %}>llama3</option>
+    </select>
+  </div>
+
+  <!-- 메시지 영역 (스크롤) -->
+  <div id="chatMessages" class="flex-1 overflow-y-auto p-4 space-y-3" style="background:#FAFAFA;">
+    <!-- 인삿말 -->
+    <div class="text-center py-4">
+      <div style="font-size:3em;">🤖</div>
+      <div class="text-sm font-semibold mt-2" style="color: var(--inviz-purple);">인비즈 AI 어시스턴트</div>
+      <div class="text-xs text-slate-500 mt-1">데이터에 대해 자연어로 물어보세요</div>
+      <div class="text-xs text-slate-400 mt-3">
+        ⚡ 빠른 매칭 (밀리초) · 🔍 RAG 의미 검색 · 👍 피드백으로 학습
+      </div>
+    </div>
+  </div>
+
+  <!-- 빠른 액션 -->
+  <div class="border-t bg-purple-50 px-3 py-2 flex-shrink-0">
+    <div class="text-xs text-slate-500 mb-1">빠른 질문:</div>
+    <div class="flex flex-wrap gap-1">
+      <button onclick="quickAsk('이번 달 매출')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">이번 달 매출</button>
+      <button onclick="quickAsk('올해 KPI')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">올해 KPI</button>
+      <button onclick="quickAsk('올해 재무제표')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">📑 올해 재무제표</button>
+      <button onclick="quickAsk('30일 이내 만료 인증서')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">만료 임박 인증서</button>
+      <button onclick="quickAsk('차입금 잔액')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">차입금 잔액</button>
+      <button onclick="quickAsk('써밋영상의원 거래내역')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">써밋영상 거래</button>
+      <button onclick="quickAsk('2024년 매출')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">2024 매출</button>
+    </div>
+  </div>
+
+  <!-- 입력 영역 -->
+  <div class="border-t p-3 bg-white flex-shrink-0">
+    <form onsubmit="return submitChat(event, true);" class="flex gap-2">
+      <input id="chatPanelInput" type="text" class="input flex-1"
+             placeholder="질문 입력 (Enter)" autocomplete="off">
+      <button type="submit" class="btn btn-accent" id="chatPanelSubmit">전송</button>
+    </form>
+    <div class="text-xs text-slate-400 mt-1">
+      자동 모드: 키워드 명확 → 즉시 응답 / 자유 질문 → RAG 자동
+    </div>
+  </div>
+</aside>
+<div id="chatBackdrop" class="fixed inset-0 bg-black/30 z-40 hidden" onclick="toggleChatPanel()"></div>
+{% endif %}
+<main class="container mx-auto px-6 py-6 page-open">
+  {% block content %}{% endblock %}
+</main>
+{% if request.url.path != '/login' %}
+</div><!-- /main-col -->
+{% endif %}
+{% block scripts %}{% endblock %}
+
+{% if request.url.path != '/login' %}
+<script>
+// ====== Chat 검색 — ChatGPT 스타일 통합 패널 ======
+function openChatPanel() {
+  const p = document.getElementById('chatPanel');
+  const b = document.getElementById('chatBackdrop');
+  if (p.classList.contains('translate-x-full')) {
+    p.classList.remove('translate-x-full');
+    b.classList.remove('hidden');
+    setTimeout(() => document.getElementById('chatPanelInput').focus(), 200);
+  }
+}
+function toggleChatPanel() {
+  const p = document.getElementById('chatPanel');
+  const b = document.getElementById('chatBackdrop');
+  if (p.classList.contains('translate-x-full')) {
+    openChatPanel();
+  } else {
+    p.classList.add('translate-x-full');
+    b.classList.add('hidden');
+  }
+}
+
+function clearChat() {
+  document.getElementById('chatMessages').innerHTML = `
+    <div class="text-center py-4">
+      <div style="font-size:3em;">🤖</div>
+      <div class="text-sm font-semibold mt-2" style="color: var(--inviz-purple);">인비즈 AI 어시스턴트</div>
+      <div class="text-xs text-slate-500 mt-1">데이터에 대해 자연어로 물어보세요</div>
+    </div>`;
+}
+
+// 상단 검색바 → 패널로 위임 (검색 결과는 패널에서만 표시)
+function submitFromBar(ev) {
+  ev.preventDefault();
+  const q = document.getElementById('chatBarInput').value.trim();
+  if (!q) return false;
+  document.getElementById('chatPanelInput').value = q;
+  document.getElementById('chatBarInput').value = '';
+  openChatPanel();
+  submitChat(null, true);
+  return false;
+}
+
+const invizFmt = v => v == null ? '-' : new Intl.NumberFormat('ko-KR').format(Math.round(v));
+
+// 접이식 섹션 토글 (데이터 결과 / 참고 자료) — 기본 접힘
+function invizToggleSec(btn) {
+  const body = btn.nextElementSibling;
+  if (!body) return;
+  const chev = btn.querySelector('.collapse-chev');
+  const willOpen = body.classList.contains('hidden');
+  body.classList.toggle('hidden', !willOpen);
+  if (chev) chev.textContent = willOpen ? '▾ 접기' : '▸ 펼치기';
+}
+
+function renderResult(intent, result) {
+  if (!result) return '<div class="text-xs text-slate-500">결과 없음</div>';
+  const kind = result.kind;
+  const link = result.page_url
+    ? `<a href="${result.page_url}" class="text-purple-700 font-semibold text-xs">→ ${result.page_label || '페이지로 이동'}</a>`
+    : '';
+  let body = '';
+
+  if (kind === 'sale' || kind === 'purchase') {
+    const label = kind === 'sale' ? '매출' : '매입';
+    body = `<div class="grid grid-cols-3 gap-2 text-xs mb-2">
+      <div><div class="text-slate-500">건수</div><div class="font-bold">${invizFmt(result.count)}</div></div>
+      <div><div class="text-slate-500">공급가액</div><div class="font-bold" style="color:var(--inviz-purple);">${invizFmt(result.sum_supply)} 원</div></div>
+      <div><div class="text-slate-500">합계</div><div class="font-bold">${invizFmt(result.sum_total ?? result.sum_supply)} 원</div></div>
+    </div>`;
+    if (result.top_parties?.length) {
+      body += `<div class="text-xs font-semibold mt-2 mb-1" style="color:var(--inviz-purple);">거래처 TOP</div><ul class="text-xs space-y-1">`;
+      result.top_parties.forEach(([n, v]) => body += `<li class="flex justify-between"><span>${n}</span><span class="font-mono">${invizFmt(v)}</span></li>`);
+      body += `</ul>`;
+    }
+    if (result.top_products?.length) {
+      body += `<div class="text-xs font-semibold mt-2 mb-1" style="color:var(--inviz-purple);">제품별</div><ul class="text-xs space-y-1">`;
+      result.top_products.forEach(([n, v]) => body += `<li class="flex justify-between"><span>${n||'기타'}</span><span class="font-mono">${invizFmt(v)}</span></li>`);
+      body += `</ul>`;
+    }
+  } else if (kind === 'party') {
+    body = `<div class="text-xs font-semibold mb-1">거래처 ${result.items.length}건</div><ul class="text-xs space-y-1">`;
+    result.items.slice(0, 8).forEach(p => {
+      body += `<li class="border-b border-slate-100 pb-1">
+        <div><span class="badge badge-purple">${p.code}</span> <b>${p.name}</b> <span class="text-slate-400">(${p.category||'-'})</span></div>
+        <div class="text-slate-500">매출 누계 ${invizFmt(p.sale_total)} · 매입 누계 ${invizFmt(p.purchase_total)}</div>
+      </li>`;
+    });
+    body += `</ul>`;
+  } else if (kind === 'contract') {
+    body = `<div class="grid grid-cols-3 gap-2 text-xs mb-2">
+      <div><div class="text-slate-500">건수</div><div class="font-bold">${invizFmt(result.count)}</div></div>
+      <div><div class="text-slate-500">계약금</div><div class="font-bold">${invizFmt(result.sum_amount)}</div></div>
+      <div><div class="text-slate-500">미수금</div><div class="font-bold text-red-600">${invizFmt(result.sum_unpaid)}</div></div>
+    </div>`;
+    if (result.items?.length) {
+      body += `<ul class="text-xs space-y-1">`;
+      result.items.slice(0, 6).forEach(c => {
+        const dRem = c.remain_days != null ? `(${c.remain_days}일)` : '';
+        body += `<li class="border-b border-slate-100 pb-1"><b>${c.name||'-'}</b> · ${c.party||''}<br><span class="text-slate-500">만료 ${c.end_date||'-'} ${dRem} · ${invizFmt(c.amount)} 원</span></li>`;
+      });
+      body += `</ul>`;
+    }
+  } else if (kind === 'document') {
+    body = `<div class="text-xs mb-2"><b>${invizFmt(result.count)}</b>건</div><ul class="text-xs space-y-1">`;
+    result.items.slice(0, 8).forEach(d => {
+      const view = d.view_url ? `<a href="${d.view_url}" target="_blank" class="text-purple-700">📄</a>` : '';
+      const rem = d.remain_days != null ? `(${d.remain_days}일)` : '';
+      body += `<li class="border-b border-slate-100 pb-1">${view} <b>${d.name}</b><br><span class="text-slate-500">${d.doc_type||''} · 만료 ${d.expiry_date||'미정'} ${rem}</span></li>`;
+    });
+    body += `</ul>`;
+  } else if (kind === 'loan') {
+    body = `<div class="text-xs mb-2">총 잔액 <b style="color:var(--inviz-purple);">${invizFmt(result.total_balance)} 원</b> (${invizFmt(result.count)}건)</div><ul class="text-xs space-y-1">`;
+    result.items.slice(0, 8).forEach(l => {
+      body += `<li class="border-b border-slate-100 pb-1"><b>${l.institution}</b> <span class="badge badge-purple">${l.kind||'-'}</span><br><span class="text-slate-500">잔액 ${invizFmt(l.balance)} · 이자율 ${l.rate||'-'}% · 만기 ${l.end_date||'-'}</span></li>`;
+    });
+    body += `</ul>`;
+  } else if (kind === 'payroll') {
+    body = `<div class="text-xs mb-2">${invizFmt(result.count)}건 · 지급합계 <b>${invizFmt(result.sum_gross)} 원</b></div>`;
+    if (result.by_dept?.length) {
+      body += `<ul class="text-xs space-y-1">`;
+      result.by_dept.forEach(([d, c, s]) => body += `<li class="flex justify-between"><span>${d} (${c}명)</span><span class="font-mono">${invizFmt(s)}</span></li>`);
+      body += `</ul>`;
+    }
+  } else if (kind === 'employee') {
+    body = `<div class="text-xs mb-2">직원 ${invizFmt(result.count)}명</div><ul class="text-xs space-y-1">`;
+    result.items.slice(0, 10).forEach(e => {
+      body += `<li><b>${e.name}</b> <span class="text-slate-400">${e.code}</span> · ${e.department||''} · ${e.active||''}</li>`;
+    });
+    body += `</ul>`;
+  } else if (kind === 'kpi') {
+    body = `<div class="text-xs mb-2">${result.year}년 KPI</div>
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        <div class="bg-purple-50 p-2 rounded"><div class="text-slate-500">매출</div><div class="font-bold" style="color:var(--inviz-purple);">${invizFmt(result.sales)} 원</div></div>
+        <div class="bg-orange-50 p-2 rounded"><div class="text-slate-500">매입</div><div class="font-bold text-amber-700">${invizFmt(result.purchases)} 원</div></div>
+        <div class="bg-green-50 p-2 rounded"><div class="text-slate-500">매출이익</div><div class="font-bold text-green-700">${invizFmt(result.gross_margin)} 원</div></div>
+        <div class="bg-slate-100 p-2 rounded"><div class="text-slate-500">급여 지출</div><div class="font-bold">${invizFmt(result.payroll)} 원</div></div>
+        <div class="bg-red-50 p-2 rounded"><div class="text-slate-500">차입금 잔액</div><div class="font-bold text-red-600">${invizFmt(result.loan_balance)} 원</div></div>
+        <div class="bg-amber-50 p-2 rounded"><div class="text-slate-500">30일 내 만료 문서</div><div class="font-bold text-amber-700">${result.expiring_docs_30}건</div></div>
+      </div>`;
+  } else if (kind === 'financial_statement') {
+    // 한국 중소기업 간이 손익계산서 표
+    const km = result.key_metrics || {};
+    const pctFmt = v => (v == null || isNaN(v)) ? '-' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+    body = `<div class="text-xs font-semibold mb-2 flex items-center gap-2" style="color: var(--inviz-purple);">
+      📑 손익계산서 (간이 P/L)
+      <span class="badge badge-purple">${result.period_label || ''}</span>
+    </div>
+    <div class="grid grid-cols-3 gap-1 text-xs mb-2">
+      <div class="bg-purple-50 p-1.5 rounded text-center">
+        <div class="text-slate-500">매출총이익률</div>
+        <div class="font-bold" style="color:var(--inviz-purple);">${pctFmt(km.gross_margin)}</div>
+      </div>
+      <div class="bg-orange-50 p-1.5 rounded text-center">
+        <div class="text-slate-500">영업이익률</div>
+        <div class="font-bold text-amber-700">${pctFmt(km.operating_margin)}</div>
+      </div>
+      <div class="bg-green-50 p-1.5 rounded text-center">
+        <div class="text-slate-500">순이익률</div>
+        <div class="font-bold ${km.net_margin >= 0 ? 'text-green-700' : 'text-red-600'}">${pctFmt(km.net_margin)}</div>
+      </div>
+    </div>
+    <table class="table text-xs" style="font-size:11.5px;">
+      <thead>
+        <tr><th>과목</th><th class="num">금액 (원)</th><th class="num w-12">비율</th></tr>
+      </thead>
+      <tbody>`;
+    (result.lines || []).forEach(ln => {
+      const indent = ln.indent ? `padding-left:${(ln.indent + 1) * 12}px;` : '';
+      let cls = '';
+      if (ln.total) cls = 'font-bold';
+      else if (ln.subtotal) cls = 'font-semibold';
+      const bg = ln.total ? 'background:#FEF3E2;border-top:2px solid var(--inviz-orange);' : '';
+      const amtColor = ln.amount < 0 ? 'color:#DC2626;' : '';
+      const pctText = (ln.ratio == null || isNaN(ln.ratio)) ? '-' : ln.ratio.toFixed(1) + '%';
+      const noteText = ln.note ? `<span class="text-slate-400 text-[10px] ml-1">${escapeHtml(ln.note)}</span>` : '';
+      body += `<tr class="${cls}" style="${bg}">
+        <td style="${indent}">${escapeHtml(ln.label)}${noteText}</td>
+        <td class="num" style="${amtColor}">${invizFmt(ln.amount)}</td>
+        <td class="num text-slate-500">${pctText}</td>
+      </tr>`;
+    });
+    body += `</tbody></table>`;
+  } else if (kind === 'error') {
+    body = `<div class="text-xs text-red-600">${result.error}</div>`;
+  } else {
+    body = `<div class="text-xs text-slate-500">${JSON.stringify(result).slice(0, 300)}</div>`;
+  }
+
+  return `${body}${link ? `<div class="mt-2 pt-2 border-t border-slate-200">${link}</div>` : ''}`;
+}
+
+let chatBusy = false;
+
+async function submitChat(ev, fromPanel = false) {
+  ev?.preventDefault?.();
+  if (chatBusy) return false;
+  const panelInput = document.getElementById('chatPanelInput');
+  const q = panelInput.value.trim();
+  if (!q) return false;
+
+  openChatPanel();
+
+  const model = document.getElementById('chatModelSel').value;
+  const mode = document.querySelector('input[name=chatMode]:checked')?.value || 'auto';
+  document.getElementById('chatModelLabel').textContent = '🧠 ' + (window.AI_LABEL || model.split(':')[0]) + ' · ' + mode + ' 모드';
+
+  appendMessage('user', escapeHtml(q));
+  panelInput.value = '';
+
+  // 검색만 모드 (LLM 없이 빠름)
+  if (mode === 'search') {
+    return await runSearchOnly(q);
+  }
+
+  // RAG / 자동 모드 — SSE 스트리밍
+  return await runStreaming(q, model, mode);
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function appendMessage(role, html) {
+  const m = document.getElementById('chatMessages');
+  // 첫 메시지면 인삿말 제거
+  if (m.querySelector('.text-center')) m.innerHTML = '';
+  const div = document.createElement('div');
+  if (role === 'user') {
+    div.innerHTML = `<div class="text-right"><div class="inline-block px-3 py-2 rounded-2xl rounded-br-sm text-sm" style="background:var(--inviz-purple); color:white; max-width:85%;">${html}</div></div>`;
+  } else {
+    div.innerHTML = `<div><div class="inline-block px-3 py-2 rounded-2xl rounded-bl-sm text-sm bg-white max-w-full border border-slate-200" style="box-shadow:0 1px 2px rgba(0,0,0,0.04);">${html}</div></div>`;
+  }
+  m.appendChild(div);
+  m.scrollTop = m.scrollHeight;
+  return div;
+}
+
+// ===== 검색만 모드 (LLM 호출 없이) =====
+async function runSearchOnly(q) {
+  const msg = appendMessage('assistant', '<div class="text-xs text-slate-500">🧪 벡터 검색 중...</div>');
+  chatBusy = true;
+  const startTs = Date.now();
+  try {
+    const fd = new FormData();
+    fd.append('query', q);
+    // 가벼운 endpoint — RAG 결과만, LLM 안 부름
+    const r = await fetch('/knowledge/test-rag', { method: 'POST', body: fd });
+    if (!r.ok) {
+      msg.querySelector('div > div').innerHTML = `<div class="text-xs text-red-600">⚠️ 검색 실패 (${r.status})</div>`;
+      return false;
+    }
+    // test-rag는 HTML을 반환 — 우리는 데이터가 필요하므로 별도 API 호출
+    const r2 = await fetch('/chat/stream', {
+      method: 'POST',
+      body: new URLSearchParams({query: q, model: 'none', use_rag: 'search_only'}),
+    });
+    if (!r2.ok) {
+      msg.querySelector('div > div').innerHTML = `<div class="text-xs text-red-600">⚠️ 오류</div>`;
+      return false;
+    }
+    let sources = null;
+    let done = null;
+    const reader = r2.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {value, done: rd} = await reader.read();
+      if (rd) break;
+      buf += dec.decode(value, {stream:true});
+      const evts = parseSSE(buf);
+      buf = evts.rest;
+      for (const ev of evts.events) {
+        if (ev.event === 'sources') sources = ev.data;
+        if (ev.event === 'done') done = ev.data;
+        if (ev.event === 'error') {
+          msg.querySelector('div > div').innerHTML = `<div class="text-xs text-red-600">⚠️ ${ev.data.message}</div>`;
+        }
+      }
+    }
+    let html = `<div class="text-xs text-slate-500 mb-2">🧪 벡터 검색 결과 (LLM 호출 없음)</div>`;
+    if (sources?.hits?.length) {
+      html += renderSources(sources.hits, /*long*/true);
+    } else {
+      html += `<div class="text-xs text-slate-400">결과 없음</div>`;
+    }
+    html += renderMeta(done, startTs, 'search');
+    msg.querySelector('div > div').innerHTML = html;
+  } catch (e) {
+    msg.querySelector('div > div').innerHTML = `<div class="text-xs text-red-600">⚠️ ${e}</div>`;
+  } finally {
+    chatBusy = false;
+  }
+  return false;
+}
+
+// ===== RAG / 자동 모드 — SSE 스트리밍 =====
+async function runStreaming(q, model, mode) {
+  const useRag = mode === 'rag' || mode === 'auto';
+
+  // 화려한 분석 중 애니메이션
+  const msg = appendMessage('assistant', `
+    <div id="thinking-block" class="py-3">
+      <!-- 스피너 + 헤더 -->
+      <div class="flex items-center gap-3 mb-3">
+        <div class="ai-spinner">
+          <div class="ai-spinner-core">🤖</div>
+        </div>
+        <div>
+          <div class="text-sm font-semibold" style="color: var(--inviz-purple);">AI가 분석 중...</div>
+          <div class="ai-dots mt-1"><span></span><span></span><span></span></div>
+        </div>
+        <div class="flex-1"></div>
+        <div class="text-xs text-slate-400" id="stage-elapsed">0.0초</div>
+      </div>
+
+      <!-- 진행바 -->
+      <div class="ai-progress mb-3">
+        <div class="ai-progress-bar" id="prog-bar" style="width:5%;"></div>
+        <div class="ai-progress-shimmer"></div>
+      </div>
+
+      <!-- 4단계 진행 표시 -->
+      <div class="space-y-1">
+        <div class="ai-step active" id="step-1">
+          <span class="ai-step-icon">1</span>
+          <span class="ai-step-text">질문 의도 분석</span>
+          <span class="ai-step-sub text-xs text-slate-400 ml-auto" id="step-1-sub"></span>
+        </div>
+        <div class="ai-step" id="step-2">
+          <span class="ai-step-icon">2</span>
+          <span class="ai-step-text">데이터베이스 조회</span>
+        </div>
+        <div class="ai-step" id="step-3">
+          <span class="ai-step-icon">3</span>
+          <span class="ai-step-text">관련 자료 검색 (벡터 DB)</span>
+        </div>
+        <div class="ai-step" id="step-4">
+          <span class="ai-step-icon">4</span>
+          <span class="ai-step-text">답변 생성</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="rag-answer" class="hidden">
+      <div class="text-xs font-semibold mb-2 flex items-center gap-1" style="color: var(--inviz-purple);">
+        🔍 <span>AI 답변</span>
+        <span class="ai-dots" id="answering-dots" style="margin-left:6px;"><span></span><span></span><span></span></span>
+      </div>
+      <div id="rag-answer-text" class="text-sm whitespace-pre-wrap ai-cursor"></div>
+    </div>
+    <div id="db-result" class="hidden mt-3"></div>
+    <div id="rag-sources" class="hidden mt-3"></div>
+    <div id="meta-line" class="hidden mt-2 pt-1 border-t border-slate-100"></div>
+  `);
+
+  chatBusy = true;
+  document.getElementById('chatPanelSubmit').disabled = true;
+  const startTs = Date.now();
+
+  // 헬퍼: 단계 상태 변경
+  const setStep = (n, state, sub) => {
+    for (let i = 1; i <= 4; i++) {
+      const el = msg.querySelector(`#step-${i}`);
+      if (!el) continue;
+      if (i < n) { el.classList.remove('active'); el.classList.add('done'); }
+      else if (i === n) {
+        if (state === 'done') { el.classList.remove('active'); el.classList.add('done'); }
+        else { el.classList.remove('done'); el.classList.add('active'); }
+      }
+      else { el.classList.remove('active', 'done'); }
+    }
+    if (sub) {
+      const subEl = msg.querySelector(`#step-${n}-sub`);
+      if (subEl) subEl.textContent = sub;
+    }
+    // 진행바 (전체 4단계 + 토큰)
+    const bar = msg.querySelector('#prog-bar');
+    if (bar) bar.style.width = (n * 22 + (state === 'done' ? 3 : 0)) + '%';
+  };
+
+  // 경과 시간 + 진행바 시머 효과
+  const tickTimer = setInterval(() => {
+    const el = msg.querySelector('#stage-elapsed');
+    if (el) el.textContent = ((Date.now() - startTs)/1000).toFixed(1) + '초';
+  }, 100);
+
+  try {
+    const r = await fetch('/chat/stream', {
+      method: 'POST',
+      body: new URLSearchParams({query: q, model: model, use_rag: useRag ? 'true' : 'false'}),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let answerText = '';
+    let answerEl = msg.querySelector('#rag-answer-text');
+    let answerBlock = msg.querySelector('#rag-answer');
+    let thinkingBlock = msg.querySelector('#thinking-block');
+    let dbBlock = msg.querySelector('#db-result');
+    let sourcesBlock = msg.querySelector('#rag-sources');
+    let metaBlock = msg.querySelector('#meta-line');
+    let doneData = null;
+    let firstToken = true;
+
+    while (true) {
+      const {value, done: rd} = await reader.read();
+      if (rd) break;
+      buf += dec.decode(value, {stream: true});
+      const parsed = parseSSE(buf);
+      buf = parsed.rest;
+      for (const ev of parsed.events) {
+        if (ev.event === 'status') {
+          const stage = ev.data.stage;
+          if (stage === 'intent' || stage === 'intent_llm') {
+            setStep(1, 'active', ev.data.msg);
+          } else if (stage === 'db') {
+            setStep(1, 'done');
+            setStep(2, 'active');
+          } else if (stage === 'rag') {
+            setStep(2, 'done');
+            setStep(3, 'active', '벡터 임베딩 검색 중');
+          } else if (stage === 'llm') {
+            setStep(3, 'done');
+            setStep(4, 'active', model.split(':')[0]);
+          }
+        } else if (ev.event === 'result') {
+          dbBlock.classList.remove('hidden');
+          dbBlock.innerHTML = `
+            <button type="button" class="collapse-head" onclick="invizToggleSec(this)">
+              <span class="text-xs font-semibold" style="color: var(--inviz-purple);">📊 데이터 결과</span>
+              <span class="collapse-chev">▸ 펼치기</span>
+            </button>
+            <div class="collapse-body hidden">
+              ${ev.data.summary ? `<div class="text-sm mb-2">${escapeHtml(ev.data.summary)}</div>` : ''}
+              ${renderResult(ev.data.intent, ev.data.result)}
+            </div>
+          `;
+        } else if (ev.event === 'sources') {
+          sourcesBlock.classList.remove('hidden');
+          sourcesBlock.innerHTML = `
+            <button type="button" class="collapse-head" onclick="invizToggleSec(this)">
+              <span class="text-xs font-semibold" style="color: var(--inviz-purple);">📚 참고 자료 (${ev.data.chunks_used}개)</span>
+              <span class="collapse-chev">▸ 펼치기</span>
+            </button>
+            <div class="collapse-body hidden">
+              ${renderSources(ev.data.hits || [], false)}
+            </div>
+          `;
+        } else if (ev.event === 'token') {
+          if (firstToken) {
+            // 답변 시작 — 점프 점은 유지하다가 done에서 제거
+            answerBlock.classList.remove('hidden');
+            firstToken = false;
+          }
+          answerText += ev.data.text;
+          answerEl.textContent = answerText;
+          msg.parentElement.scrollTop = msg.parentElement.scrollHeight;
+        } else if (ev.event === 'done') {
+          doneData = ev.data;
+          // 모든 단계 완료
+          setStep(4, 'done');
+          // 진행바 100%
+          const bar = msg.querySelector('#prog-bar');
+          if (bar) bar.style.width = '100%';
+          // thinking 블록 페이드아웃 (0.5초 후 숨김)
+          setTimeout(() => {
+            if (thinkingBlock) thinkingBlock.style.display = 'none';
+          }, 800);
+          // answer 점프 점 제거
+          const dots = msg.querySelector('#answering-dots');
+          if (dots) dots.remove();
+          // 타이핑 커서 제거
+          if (answerEl) answerEl.classList.remove('ai-cursor');
+        } else if (ev.event === 'error') {
+          const stepText = msg.querySelector('.ai-step.active .ai-step-text');
+          if (stepText) stepText.innerHTML = `<span class="text-red-600">⚠️ ${ev.data.message}</span>`;
+        }
+      }
+    }
+    clearInterval(tickTimer);
+    if (doneData) {
+      metaBlock.classList.remove('hidden');
+      metaBlock.innerHTML = `<div class="text-xs text-slate-400 pt-1 border-t border-slate-100">${renderMetaInner(doneData, startTs, mode)}</div>`;
+    }
+  } catch (e) {
+    clearInterval(tickTimer);
+    const thinkingBlock = msg.querySelector('#thinking-block');
+    if (thinkingBlock) {
+      thinkingBlock.innerHTML = `<div class="text-sm text-red-600 py-2">⚠️ 통신 오류: ${escapeHtml(String(e))}<br><span class="text-xs text-slate-500">서버나 Ollama 응답 없음. <code>ollama serve</code> 확인 후 재시도.</span></div>`;
+    }
+  } finally {
+    chatBusy = false;
+    document.getElementById('chatPanelSubmit').disabled = false;
+  }
+  return false;
+}
+
+// ===== SSE 파서 =====
+function parseSSE(buf) {
+  const events = [];
+  let rest = buf;
+  while (true) {
+    const idx = rest.indexOf('\n\n');
+    if (idx === -1) break;
+    const chunk = rest.slice(0, idx);
+    rest = rest.slice(idx + 2);
+    const lines = chunk.split('\n');
+    let event = 'message', data = '';
+    for (const ln of lines) {
+      if (ln.startsWith('event: ')) event = ln.slice(7).trim();
+      else if (ln.startsWith('data: ')) data += ln.slice(6);
+    }
+    try { events.push({event, data: JSON.parse(data || 'null')}); }
+    catch { events.push({event, data: data}); }
+  }
+  return {events, rest};
+}
+
+// ===== 소스 렌더 =====
+function renderSources(hits, long) {
+  if (!hits.length) return '<div class="text-xs text-slate-400">관련 자료 없음</div>';
+  let html = '<ul class="text-xs space-y-1.5">';
+  hits.forEach((h, i) => {
+    const score = h.score != null ? `<span class="text-slate-400">[${h.score.toFixed(2)}]</span>` : '';
+    const badge = h.source === 'conversation'
+      ? '<span class="badge badge-orange">학습</span>'
+      : `<span class="badge badge-purple">${h.source_type || 'kb'}</span>`;
+    const linkText = escapeHtml(h.title || '제목 없음');
+    const link = h.page_url
+      ? `<a href="${h.page_url}" class="text-purple-700 hover:underline" target="_blank">${linkText}</a>`
+      : linkText;
+    html += `<li class="bg-slate-50 px-2 py-1.5 rounded">${i + 1}. ${badge} ${score} ${link}`;
+    if (long) html += `<div class="text-slate-600 mt-1 ml-4">${escapeHtml(h.preview || '')}</div>`;
+    else html += `<div class="text-slate-500 ml-4 text-xs">${escapeHtml((h.preview || '').slice(0, 100))}</div>`;
+    html += `</li>`;
+  });
+  return html + '</ul>';
+}
+
+function renderMeta(done, startTs, mode) {
+  if (!done) return '';
+  return `<div class="text-xs text-slate-400 mt-2 pt-1 border-t border-slate-100">
+    ${renderMetaInner(done, startTs, mode)}
+  </div>`;
+}
+
+function renderMetaInner(done, startTs, mode) {
+  const ms = done.elapsed_ms || (Date.now() - startTs);
+  const tokInfo = done.tokens_input
+    ? ` · 토큰 in/out: ${done.tokens_input}/${done.tokens_output || 0}`
+    : '';
+  const fastTag = done._fast ? ' · ⚡fast' : '';
+  let html = `<div class="flex items-center justify-between">
+    <span>⏱ ${(ms/1000).toFixed(1)}초 · ${(done.model || '').split(':')[0]} · ${mode}${fastTag}${tokInfo} · <code>${done.intent || '?'}</code></span>`;
+  if (done.history_id) {
+    html += `<span class="flex gap-1">
+      <button onclick="feedback(${done.history_id}, 'good', this)" class="hover:bg-green-100 px-1.5 py-0.5 rounded" title="좋은 답변 (자가학습)">👍</button>
+      <button onclick="feedback(${done.history_id}, 'bad', this)" class="hover:bg-red-100 px-1.5 py-0.5 rounded" title="틀린 답변">👎</button>
+    </span>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+async function feedback(historyId, rating, btn) {
+  try {
+    const fd = new FormData();
+    fd.append('history_id', historyId);
+    fd.append('rating', rating);
+    const r = await fetch('/chat/feedback', { method: 'POST', body: fd });
+    if (r.ok) {
+      btn.style.background = rating === 'good' ? '#10B981' : '#EF4444';
+      btn.style.color = 'white';
+      btn.textContent = rating === 'good' ? '✓ 학습됨' : '✗ 기록됨';
+      btn.disabled = true;
+      // 같은 메시지의 다른 버튼 비활성
+      const parent = btn.parentElement;
+      Array.from(parent.querySelectorAll('button')).forEach(b => {
+        if (b !== btn) { b.disabled = true; b.style.opacity = '0.3'; }
+      });
+    }
+  } catch (e) { console.error(e); }
+}
+
+function quickAsk(q) {
+  // 패널이 닫혀있으면 열기
+  const p = document.getElementById('chatPanel');
+  if (p.classList.contains('translate-x-full')) toggleChatPanel();
+  document.getElementById('chatBarInput').value = q;
+  document.getElementById('chatPanelInput').value = q;
+  submitChat(null, false);
+}
+
+// 키보드 단축키: Ctrl+K / Cmd+K
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    document.getElementById('chatBarInput').focus();
+  }
+});
+
+// ====== 검색바 파일 드래그앤드롭 → AI 분류 ======
+(function initDragDrop() {
+  const bar = document.getElementById('chatBar');
+  const overlay = document.getElementById('dndOverlay');
+  const form = document.getElementById('dndForm');
+  const fileInput = document.getElementById('dndFileInput');
+  if (!bar || !overlay || !form || !fileInput) return;
+
+  const ALLOWED = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf'];
+  let dragDepth = 0;
+
+  // 파일 선택(📎 버튼) 또는 드롭 → 폼 제출
+  function submitWithFile(file) {
+    const name = (file.name || '').toLowerCase();
+    if (!ALLOWED.some(ext => name.endsWith(ext))) {
+      alert('지원하지 않는 형식입니다.\n허용: Excel(.xlsx/.xls), CSV(.csv), PDF(.pdf)');
+      return;
+    }
+    // DataTransfer로 file input에 파일 주입 후 제출 (→ /ai-classify/analyze 결과 페이지로 이동)
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+    } catch (e) {
+      // 일부 브라우저 폴백: 그냥 제출 시도
+    }
+    // 분석 진행 안내 (페이지 전환 전 잠깐 표시)
+    overlay.classList.remove('hidden');
+    overlay.querySelector('.font-bold').textContent = '🤖 AI가 분석 중입니다... 잠시만 기다려 주세요';
+    form.submit();
+  }
+
+  // 파일 선택창에서 고른 경우
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files.length) submitWithFile(fileInput.files[0]);
+  });
+
+  // 드래그 이벤트 — 페이지 전체에서 받되 바 위에 오버레이 표시
+  ['dragenter', 'dragover'].forEach(evt => {
+    document.addEventListener(evt, e => {
+      // 파일 드래그일 때만
+      if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+      e.preventDefault();
+      if (evt === 'dragenter') dragDepth++;
+      overlay.classList.remove('hidden');
+    });
+  });
+  document.addEventListener('dragleave', e => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+    dragDepth--;
+    if (dragDepth <= 0) { dragDepth = 0; overlay.classList.add('hidden'); }
+  });
+  document.addEventListener('drop', e => {
+    if (!e.dataTransfer) return;
+    const hasFiles = Array.from(e.dataTransfer.types || []).includes('Files');
+    if (!hasFiles) return;
+    e.preventDefault();
+    dragDepth = 0;
+    const files = e.dataTransfer.files;
+    if (files && files.length) {
+      submitWithFile(files[0]);
+    } else {
+      overlay.classList.add('hidden');
+    }
+  });
+})();
+
+// Ollama 상태 체크 → 사용 불가면 검색바 경고
+// ===== 사이드바 크기조정 (데스크톱) =====
+(function initSidebarResize(){
+  try {
+    const saved = localStorage.getItem('sideNavWidth');
+    if (saved && window.innerWidth > 1024) {
+      document.documentElement.style.setProperty('--sidenav-w', saved + 'px');
+    }
+  } catch(e){}
+  const rez = document.getElementById('sideResizer');
+  if (!rez) return;
+  let dragging = false;
+  rez.addEventListener('mousedown', e => {
+    dragging = true; rez.classList.add('dragging');
+    document.body.style.userSelect = 'none'; e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const w = Math.max(150, Math.min(380, e.clientX));
+    document.documentElement.style.setProperty('--sidenav-w', w + 'px');
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; rez.classList.remove('dragging'); document.body.style.userSelect = '';
+    const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidenav-w')) || 208;
+    try { localStorage.setItem('sideNavWidth', w); } catch(e){}
+  });
+})();
+// ===== 모바일 드로어 =====
+function toggleMobileNav(){
+  const nav = document.getElementById('sideNav'), bd = document.getElementById('sideBackdrop');
+  if (!nav) return;
+  if (nav.classList.contains('open')) closeMobileNav();
+  else { nav.classList.add('open'); if (bd) bd.classList.add('show'); }
+}
+function closeMobileNav(){
+  document.getElementById('sideNav')?.classList.remove('open');
+  document.getElementById('sideBackdrop')?.classList.remove('show');
+}
+// 하위메뉴 펼치기/접기
+function toggleGroup(chev){
+  const grp = chev.closest('.side-grp');
+  if (grp) grp.classList.toggle('open');
+}
+document.querySelectorAll('.side-link').forEach(a => a.addEventListener('click', () => {
+  if (window.innerWidth <= 640) closeMobileNav();
+}));
+
+fetch('/chat/status').then(r => r.json()).then(s => {
+  // 활성 AI 모델 라벨 저장 (챗 헤더에 사용)
+  if (s.ai_label) window.AI_LABEL = s.ai_label;
+  // 클라우드 공급자가 설정돼 있으면 Ollama 없이도 AI 사용 가능
+  const aiOk = (s.ai_available !== undefined) ? s.ai_available : s.ollama_available;
+  if (!aiOk) {
+    const bar = document.getElementById('chatBar');
+    if (bar && !document.getElementById('ollamaWarn')) {
+      const warn = document.createElement('div');
+      warn.id = 'ollamaWarn';
+      warn.className = 'container mx-auto px-6 py-1 text-xs text-amber-700 bg-amber-50 border-t border-amber-200';
+      warn.innerHTML = '⚠️ AI 공급자 미설정 · 챗·분류 제한됩니다. <a href="/settings/ai" class="underline">설정 → AI 공급자</a>에서 GPT·Claude·Gemini API를 등록하거나 <code>ollama serve</code>를 실행하세요.';
+      bar.appendChild(warn);
+    }
+  }
+}).catch(() => {});
+</script>
+{% endif %}
+</body>
+</html>

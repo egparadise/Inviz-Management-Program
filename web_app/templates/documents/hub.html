@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}서류·인증 관리 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">📁 서류·인증 관리</h1>
+  <div class="flex gap-2">
+    <form method="post" action="/documents/scan" class="inline" onsubmit="showDocScanOverlay('🔄 폴더 스캔 중', '폴더와 하위 파일을 분석하여 카테고리를 자동 분류합니다...')">
+      <input type="hidden" name="back" value="/documents">
+      <button class="btn btn-secondary">🔄 폴더 재스캔</button>
+    </form>
+    <form method="post" action="/documents/recategorize" class="inline" title="미분류(기타) 문서를 규칙으로 재분류"
+          onsubmit="showDocScanOverlay('🪄 미분류 재분류 중', '기타 문서들을 규칙·키워드로 다시 분류합니다...')">
+      <input type="hidden" name="only_etc" value="1"><input type="hidden" name="back" value="/documents">
+      <button class="btn btn-secondary">🪄 미분류 재분류</button>
+    </form>
+  </div>
+</div>
+
+<!-- 스캔 진행 오버레이 -->
+<div id="doc-scan-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center"
+     style="background: rgba(15,10,40,0.6); backdrop-filter: blur(6px);">
+  <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md text-center">
+    <div class="relative mx-auto mb-4" style="width:80px;height:80px;">
+      <div class="ai-spinner-ring"></div>
+      <div class="ai-brain-pulse absolute inset-0 flex items-center justify-center text-4xl">📁</div>
+    </div>
+    <div id="doc-scan-title" class="font-bold text-lg mb-2" style="color: var(--inviz-purple);">🔄 폴더 스캔 중</div>
+    <div id="doc-scan-msg" class="text-sm text-slate-600 mb-2">폴더와 하위 파일을 분석하여 카테고리를 자동 분류합니다...</div>
+    <div class="flex justify-center gap-1 mt-3">
+      <span class="dot-bounce"></span><span class="dot-bounce" style="animation-delay:0.2s"></span><span class="dot-bounce" style="animation-delay:0.4s"></span>
+    </div>
+    <div class="text-xs text-slate-400 mt-3">파일이 많으면 수 십 초 소요됩니다.</div>
+  </div>
+</div>
+<style>
+  .ai-spinner-ring { position: absolute; inset: 0; border: 4px solid #E9D5FF; border-top-color: #7C3AED; border-right-color: #F97316; border-radius: 50%; animation: ai-spin 1.2s linear infinite; }
+  @keyframes ai-spin { to { transform: rotate(360deg); } }
+  .ai-brain-pulse { animation: brain-pulse 1.8s ease-in-out infinite; }
+  @keyframes brain-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); filter: drop-shadow(0 0 12px rgba(124,58,237,0.8)); } }
+  .dot-bounce { display:inline-block; width:10px; height:10px; border-radius:50%; background: var(--inviz-purple); animation: bounce-d 1s infinite; }
+  @keyframes bounce-d { 0%,100% { transform: translateY(0); opacity:0.4; } 50% { transform: translateY(-8px); opacity:1; } }
+</style>
+<script>
+  function showDocScanOverlay(title, msg) {
+    document.getElementById('doc-scan-title').textContent = title;
+    document.getElementById('doc-scan-msg').textContent = msg;
+    document.getElementById('doc-scan-overlay').classList.remove('hidden');
+    return true;
+  }
+</script>
+
+{% set q = request.query_params %}
+{% if q.get('scanned_new') is not none %}
+<div class="card mb-4 bg-green-50 border border-green-200 text-sm text-green-900">
+  ✓ 폴더 스캔 완료 — 신규 {{ q.get('scanned_new') }}건, 기존 {{ q.get('scanned_seen') }}건 (카테고리 자동분류 적용).
+</div>{% endif %}
+{% if q.get('recat') is not none %}
+<div class="card mb-4 bg-sky-50 border border-sky-200 text-sm text-sky-900">🪄 재분류 완료 — {{ q.get('recat') }}건 카테고리 변경.</div>{% endif %}
+
+<!-- 카테고리 카드 -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+  {% for c in categories %}
+  <a href="/documents/cat/{{ c.key }}" class="card hover:shadow-md transition block" style="border-top:3px solid var(--inviz-purple);">
+    <div class="flex items-start justify-between">
+      <div class="flex items-center gap-2">
+        <span style="font-size:1.6em;">{{ c.icon }}</span>
+        <div>
+          <div class="font-bold text-slate-800">{{ c.label }}</div>
+          <div class="text-xs text-slate-400">{{ c.count }}건{% if c.files %} · 파일 {{ c.files }}{% endif %}</div>
+        </div>
+      </div>
+      <div class="text-right">
+        {% if c.expired %}<span class="badge badge-red">만료 {{ c.expired }}</span>{% endif %}
+        {% if c.expiring_30 %}<span class="badge badge-orange">임박 {{ c.expiring_30 }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="text-xs text-slate-500 mt-2 leading-snug">{{ c.desc }}</div>
+  </a>
+  {% endfor %}
+
+  <!-- 고객 계약서(제품별) — 계약마스터 -->
+  <a href="{{ customer.path }}" class="card hover:shadow-md transition block" style="border-top:3px solid var(--inviz-orange);">
+    <div class="flex items-start justify-between">
+      <div class="flex items-center gap-2">
+        <span style="font-size:1.6em;">{{ customer.icon }}</span>
+        <div>
+          <div class="font-bold text-slate-800">{{ customer.label }}</div>
+          <div class="text-xs text-slate-400">{{ customer.count }}건 · 진행 {{ customer.active }}</div>
+        </div>
+      </div>
+      <div class="text-right">
+        {% if customer.expiring_30 %}<span class="badge badge-orange">만료임박 {{ customer.expiring_30 }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="text-xs text-slate-500 mt-2 leading-snug">{{ customer.desc }}</div>
+  </a>
+</div>
+
+<!-- 만료 임박(60일) 통합 알림 -->
+<div class="card">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="font-semibold text-slate-700">⏰ 만료 임박 서류 (60일 이내)</h3>
+    <span class="text-xs text-slate-400">전체 {{ total_docs }}건 관리 중</span>
+  </div>
+  {% if expiring %}
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>카테고리</th><th>제목</th><th>종류</th><th>만료일</th><th class="num">잔여</th><th></th></tr></thead>
+      <tbody>
+        {% for r in expiring %}
+        <tr {% if r.days_remaining is not none and r.days_remaining <= 30 %}class="bg-amber-50"{% endif %}>
+          <td class="text-xs">{{ category_labels.get(r.category, r.category or '기타') }}</td>
+          <td class="font-medium" style="max-width:320px;"><div class="truncate" title="{{ r.name }}">{{ r.name }}</div></td>
+          <td><span class="badge badge-purple">{{ r.doc_type or '-' }}</span></td>
+          <td class="text-xs whitespace-nowrap font-medium">{{ r.expiry_date|date }}</td>
+          <td class="num text-xs">
+            {% if r.days_remaining is not none and r.days_remaining <= 30 %}<span class="badge badge-orange">{{ r.days_remaining }}일</span>
+            {% else %}<span class="text-slate-500">{{ r.days_remaining }}일</span>{% endif %}
+          </td>
+          <td><a href="/documents/{{ r.id }}/edit" class="text-purple-700 text-xs">수정</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<div class="text-center text-slate-400 py-6">60일 이내 만료 예정 서류가 없습니다. ✅</div>{% endif %}
+</div>
+{% endblock %}

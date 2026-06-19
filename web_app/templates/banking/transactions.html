@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}거래내역 — 자금/계좌 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">💸 은행 거래내역</h1>
+  <div class="flex gap-2">
+    <a href="/banking" class="btn btn-secondary text-sm">🏦 계좌현황</a>
+    <a href="/banking/cards" class="btn btn-secondary text-sm">💳 카드</a>
+  </div>
+</div>
+
+{% set q = request.query_params %}
+{% if q.get('up_new') is not none %}<div class="card mb-3 bg-green-50 border border-green-200 text-sm text-green-900">✓ 업로드 완료 — 신규 {{ q.get('up_new') }}건 · 중복제외 {{ q.get('up_dup') }}건 · 형식제외 {{ q.get('up_skip') }}건</div>{% endif %}
+{% if q.get('err') %}<div class="card mb-3 bg-red-50 border border-red-200 text-sm text-red-700">⚠️ {{ q.get('err') }}</div>{% endif %}
+
+<!-- 업로드 -->
+<div class="card mb-4" style="border-left:4px solid var(--inviz-purple);">
+  <h3 class="font-semibold mb-2" style="color:var(--inviz-purple);">📤 거래내역 업로드 (Excel / CSV)</h3>
+  <p class="text-xs text-slate-500 mb-3">각 은행 인터넷뱅킹에서 내려받은 거래내역 파일을 올리면 자동 인식해 적재합니다. (거래일·입금/출금·잔액·적요 열 자동 매칭, 중복 자동 제외)</p>
+  {% if accounts %}
+  <form method="post" action="/banking/upload" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2">
+    <div>
+      <label class="text-xs text-slate-500">계좌 *</label>
+      <select name="account_id" class="select" required style="min-width:200px;">
+        <option value="">계좌 선택</option>
+        {% for a in accounts %}<option value="{{ a.id }}" {% if filter.account_id == a.id|string %}selected{% endif %}>{{ acc_name.get(a.id, a.bank_name) }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">파일 *</label>
+      <input type="file" name="upload" class="input" accept=".xlsx,.xls,.csv" required>
+    </div>
+    <button class="btn btn-primary">📤 업로드</button>
+  </form>
+  {% else %}
+  <div class="text-sm text-amber-600">먼저 <a href="/settings/banking" class="underline">설정 ▸ 은행·카드</a>에서 계좌를 등록하세요.</div>
+  {% endif %}
+</div>
+
+<!-- 필터 -->
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-2 md:grid-cols-6 gap-3">
+    <div>
+      <label class="text-xs text-slate-500">계좌</label>
+      <select name="account_id" class="select">
+        <option value="">전체</option>
+        {% for a in accounts %}<option value="{{ a.id }}" {% if filter.account_id == a.id|string %}selected{% endif %}>{{ acc_name.get(a.id, a.bank_name) }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">구분</label>
+      <select name="direction" class="select">
+        <option value="">전체</option>
+        <option value="in" {% if filter.direction=='in' %}selected{% endif %}>입금</option>
+        <option value="out" {% if filter.direction=='out' %}selected{% endif %}>출금</option>
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">분류</label>
+      <select name="category" class="select">
+        <option value="">전체</option>
+        {% for c in categories %}<option value="{{ c }}" {% if filter.category==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">시작일</label>
+      <input type="date" name="date_from" value="{{ filter.date_from }}" class="input">
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">종료일</label>
+      <input type="date" name="date_to" value="{{ filter.date_to }}" class="input">
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">검색</label>
+      <input type="text" name="q" value="{{ filter.q }}" class="input" placeholder="적요·내용">
+    </div>
+    <div class="col-span-2 md:col-span-6 flex gap-2 justify-end pt-1 border-t">
+      <button class="btn btn-primary px-6">필터</button>
+      <a href="/banking/transactions" class="btn btn-secondary">초기화</a>
+    </div>
+  </form>
+</div>
+
+<!-- 합계 -->
+<div class="grid grid-cols-3 gap-3 mb-4">
+  <div class="kpi-card"><div class="text-xs text-slate-500">건수</div><div class="text-xl font-bold text-slate-800 mt-1">{{ total_count }}</div></div>
+  <div class="kpi-card" style="border-color:#10B981;"><div class="text-xs text-slate-500">입금 합계</div><div class="text-xl font-bold text-green-700 mt-1">{{ sum_in|money }}</div></div>
+  <div class="kpi-card" style="border-color:#EF4444;"><div class="text-xs text-slate-500">출금 합계</div><div class="text-xl font-bold text-red-600 mt-1">{{ sum_out|money }}</div></div>
+</div>
+
+<!-- 목록 -->
+<div class="card">
+  <div class="text-sm text-slate-600 mb-3">총 {{ total_count }}건 · {{ page }}/{{ total_pages or 1 }}</div>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>일자</th><th>계좌</th><th>구분</th><th>내용/적요</th><th>분류</th><th class="num">금액</th><th class="num">거래후잔액</th></tr></thead>
+      <tbody>
+        {% for t in rows %}
+        <tr>
+          <td class="text-xs whitespace-nowrap">{{ t.tx_date|date }}{% if t.tx_time %} <span class="text-slate-400">{{ t.tx_time }}</span>{% endif %}</td>
+          <td class="text-xs">{{ acc_name.get(t.account_id, '') }}</td>
+          <td>{% if t.direction=='in' %}<span class="badge badge-green">입금</span>{% else %}<span class="badge badge-red">출금</span>{% endif %}</td>
+          <td class="text-xs" style="max-width:300px;"><div class="truncate" title="{{ t.counterparty }}">{{ t.counterparty or '' }}</div></td>
+          <td class="text-xs text-slate-500">{{ t.category or '' }}</td>
+          <td class="num font-semibold {{ 'text-green-700' if t.direction=='in' else 'text-red-600' }}">{{ '+' if t.direction=='in' else '-' }}{{ t.amount|money }}</td>
+          <td class="num text-slate-500">{{ t.balance_after|money if t.balance_after is not none else '' }}</td>
+        </tr>
+        {% endfor %}
+        {% if not rows %}<tr><td colspan="7" class="text-center text-slate-400 py-8">거래내역이 없습니다. 위에서 파일을 업로드하세요.</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+  <div class="flex justify-center gap-2 mt-4">
+    {% set qs = '&account_id=' ~ filter.account_id ~ '&direction=' ~ filter.direction ~ '&category=' ~ filter.category ~ '&q=' ~ filter.q ~ '&date_from=' ~ filter.date_from ~ '&date_to=' ~ filter.date_to %}
+    {% if page > 1 %}<a href="?page={{ page-1 }}{{ qs }}" class="btn btn-secondary">이전</a>{% endif %}
+    <span class="px-3 py-2 text-sm">{{ page }} / {{ total_pages or 1 }}</span>
+    {% if page < total_pages %}<a href="?page={{ page+1 }}{{ qs }}" class="btn btn-secondary">다음</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

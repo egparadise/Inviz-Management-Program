@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}영수증 AI 분석 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">📷 영수증 AI 분석</h1>
+  <a href="/expense" class="btn btn-secondary">← 지출 목록</a>
+</div>
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">사용 방법</h3>
+  <ol class="text-sm text-slate-700 space-y-1 ml-4 list-decimal">
+    <li>아래에서 영수증 사진을 <b>업로드</b>하거나 휴대폰/노트북 카메라로 <b>촬영</b></li>
+    <li>AI(OpenAI GPT-4o-mini Vision 또는 Anthropic Claude)가 일자·금액·사용처·결제수단을 자동 추출</li>
+    <li>결과를 확인·수정 후 "✓ 적용"으로 지출에 등록</li>
+  </ol>
+  <div class="text-xs text-slate-500 mt-2">📌 키 등록·공급자 우선순위: <a href="/settings/ai" class="text-purple-700 underline">AI 공급자 설정</a></div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <!-- 좌: 업로드 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">1) 영수증 선택</h3>
+    <div class="space-y-2">
+      <label class="block">
+        <span class="text-sm">📁 파일 업로드 (이미지)</span>
+        <input type="file" id="file-upload" accept="image/*" class="mt-1 block w-full text-sm
+               file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold
+               file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200">
+      </label>
+      <label class="block">
+        <span class="text-sm">📷 카메라 촬영 (모바일 권장)</span>
+        <input type="file" id="file-camera" accept="image/*" capture="environment" class="mt-1 block w-full text-sm
+               file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold
+               file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200">
+      </label>
+    </div>
+    <div id="img-preview" class="mt-3 hidden">
+      <img id="img-thumb" class="max-w-full max-h-72 mx-auto rounded border" alt="영수증 미리보기">
+    </div>
+    <button id="analyze-btn" type="button" class="btn btn-primary mt-3 w-full" onclick="runAnalyze()" disabled>
+      🔍 AI 분석 시작
+    </button>
+    <div id="analyze-status" class="text-xs text-slate-500 mt-2"></div>
+  </div>
+
+  <!-- 우: 분석 결과 + 적용 -->
+  <div class="card">
+    <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">2) 분석 결과 확인·수정</h3>
+    <form method="post" action="/expense/receipt/apply" class="space-y-2" id="apply-form">
+      <input type="hidden" name="receipt_file" id="receipt_file">
+      <div class="grid grid-cols-2 gap-2">
+        <label class="block"><span class="text-xs text-slate-500">일자</span>
+          <input type="date" name="use_date" id="f-use_date" class="input mt-1" required></label>
+        <label class="block"><span class="text-xs text-slate-500">금액</span>
+          <input type="number" name="amount" id="f-amount" class="input mt-1" required></label>
+        <label class="block"><span class="text-xs text-slate-500">결제수단</span>
+          <select name="payment_method" id="f-payment" class="select mt-1">
+            {% for p in payment_methods %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+          </select></label>
+        <label class="block"><span class="text-xs text-slate-500">사용처</span>
+          <input type="text" name="party_or_place" id="f-place" class="input mt-1"></label>
+        <label class="block"><span class="text-xs text-slate-500">분류(대)</span>
+          <select name="category_main" id="f-main" class="select mt-1" onchange="updateSub()">
+            <option value="">(미지정)</option>
+            {% for m, _ in categories %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+          </select></label>
+        <label class="block"><span class="text-xs text-slate-500">분류(소)</span>
+          <select name="category_sub" id="f-sub" class="select mt-1"><option value="">(미지정)</option></select></label>
+        <label class="block"><span class="text-xs text-slate-500">직원</span>
+          <input type="text" name="employee_name" class="input mt-1"></label>
+        <label class="block"><span class="text-xs text-slate-500">부서</span>
+          <input type="text" name="department" class="input mt-1"></label>
+      </div>
+      <label class="block"><span class="text-xs text-slate-500">비고</span>
+        <textarea name="note" id="f-note" rows="2" class="input mt-1"></textarea></label>
+      <button class="btn btn-accent w-full mt-2" id="apply-btn" disabled>✓ 지출에 적용</button>
+    </form>
+    <div id="ai-meta" class="text-xs text-slate-500 mt-2"></div>
+  </div>
+</div>
+
+<script>
+const CATS = {{ categories|tojson }};
+let currentFile = null;
+let currentMime = '';
+
+function setFile(f){
+  currentFile = f;
+  currentMime = f.type || 'image/jpeg';
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('img-thumb').src = e.target.result;
+    document.getElementById('img-preview').classList.remove('hidden');
+    document.getElementById('analyze-btn').disabled = false;
+  };
+  reader.readAsDataURL(f);
+}
+document.getElementById('file-upload').addEventListener('change', e => { if(e.target.files[0]) setFile(e.target.files[0]); });
+document.getElementById('file-camera').addEventListener('change', e => { if(e.target.files[0]) setFile(e.target.files[0]); });
+
+async function runAnalyze(){
+  if(!currentFile) return;
+  const btn = document.getElementById('analyze-btn');
+  const st = document.getElementById('analyze-status');
+  btn.disabled = true; btn.textContent = '⏳ AI 분석 중... (5~15초)';
+  st.textContent = 'OpenAI/Anthropic Vision API 호출 중...';
+  try {
+    const fd = new FormData();
+    fd.append('file', currentFile);
+    const r = await fetch('/expense/receipt/analyze', {method: 'POST', body: fd});
+    const d = await r.json();
+    if(!d.ok){
+      st.innerHTML = `<span class="text-red-700">❌ ${d.error || '분석 실패'}</span>`;
+      btn.disabled = false; btn.textContent = '🔍 AI 분석 시작';
+      return;
+    }
+    // 폼 자동 채우기
+    if(d.date) document.getElementById('f-use_date').value = d.date;
+    if(d.amount) document.getElementById('f-amount').value = d.amount;
+    if(d.payment_method) document.getElementById('f-payment').value = d.payment_method;
+    if(d.place) document.getElementById('f-place').value = d.place;
+    if(d.category_main){
+      document.getElementById('f-main').value = d.category_main;
+      updateSub(d.category_sub);
+    }
+    if(d.items) document.getElementById('f-note').value = d.items;
+    if(d.saved) document.getElementById('receipt_file').value = d.saved;
+    document.getElementById('apply-btn').disabled = false;
+    st.innerHTML = `<span class="text-green-700">✅ 분석 완료 (신뢰도: ${(d.confidence||0).toFixed(2)})</span>`;
+    document.getElementById('ai-meta').textContent = '분석 모델: ' + (d._provider || '?');
+    btn.textContent = '🔄 다시 분석';
+    btn.disabled = false;
+  } catch(e){
+    st.innerHTML = `<span class="text-red-700">❌ 네트워크 오류: ${e}</span>`;
+    btn.disabled = false; btn.textContent = '🔍 AI 분석 시작';
+  }
+}
+
+function updateSub(presetSub){
+  const main = document.getElementById('f-main').value;
+  const sub = document.getElementById('f-sub');
+  sub.innerHTML = '<option value="">(미지정)</option>';
+  const found = CATS.find(x => x[0] === main);
+  if(found){
+    found[1].forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      if(s === presetSub) opt.selected = true;
+      sub.appendChild(opt);
+    });
+  }
+}
+</script>
+{% endblock %}

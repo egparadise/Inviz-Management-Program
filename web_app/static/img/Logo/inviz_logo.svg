@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200" role="img" aria-label="Inviz">
+  <!-- "lnviz" 텍스트 (보라색) -->
+  <g font-family="Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', Arial, sans-serif"
+     font-weight="700"
+     fill="#6B2C91">
+    <text x="0" y="170" font-size="200" letter-spacing="-8">lnviz</text>
+  </g>
+
+  <!-- 별표 (i의 점 위치, 주황색) — 8방향 빛 -->
+  <g transform="translate(317,42)" fill="#F47521">
+    <path d="M 0 -28 L 4 -6 L 28 0 L 4 6 L 0 28 L -4 6 L -28 0 L -4 -6 Z
+             M 0 -16 L 2 -2 L 16 0 L 2 2 L 0 16 L -2 2 L -16 0 L -2 -2 Z" fill-rule="evenodd"/>
+  </g>
+
+  <!-- 럭비공: 두 잎이 어긋나서 결합된 모양 -->
+  <g transform="translate(620, 110)">
+    <!-- 주황 잎 (위쪽, 좌측 상단에서 우측 하단으로) -->
+    <path d="M -75 -10
+             C -75 -60, 0 -90, 60 -75
+             C 75 -25, 30 30, -30 25
+             C -65 15, -75 -5, -75 -10 Z"
+          fill="#F47521"/>
+    <!-- 보라 잎 (아래쪽, 우측 하단에서 좌측 상단으로 — 약간 어긋남) -->
+    <path d="M 75 10
+             C 75 60, 0 90, -60 75
+             C -75 25, -30 -30, 30 -25
+             C 65 -15, 75 5, 75 10 Z"
+          fill="#6B2C91"/>
+  </g>
+</svg>

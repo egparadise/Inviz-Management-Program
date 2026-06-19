@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}세금 — 보고서 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">🧾 세금 — 국세·지방세·원천세·4대보험</h1>
+  <div class="flex items-end gap-2 flex-wrap">
+    <form method="get" class="flex items-end gap-2">
+      <div>
+        <label class="text-xs text-slate-500">연도</label>
+        <select name="year" class="select" onchange="this.form.submit()">
+          {% for y in years %}<option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">보기</label>
+        <select name="view" class="select" onchange="this.form.submit()">
+          <option value="month" {% if view=='month' %}selected{% endif %}>월별</option>
+          <option value="quarter" {% if view=='quarter' %}selected{% endif %}>분기별</option>
+        </select>
+      </div>
+      <noscript><button class="btn btn-primary">적용</button></noscript>
+    </form>
+    <a href="/reports/tax/export.xlsx?year={{ year }}&view={{ view }}" class="btn btn-secondary">📊 Excel</a>
+    <form method="post" action="/reports/tax/calendar" onsubmit="return confirm('{{ year }}년 세금 신고·납부 기한을 캘린더에 등록할까요?')">
+      <input type="hidden" name="year" value="{{ year }}">
+      <button class="btn btn-secondary">📅 신고기한 캘린더 등록</button>
+    </form>
+  </div>
+</div>
+
+{% set q = request.query_params %}
+{% if q.get('cal_added') is not none %}<div class="card mb-3 bg-green-50 border border-green-200 text-sm text-green-900">📅 신고기한 {{ q.get('cal_added') }}건을 캘린더에 등록했습니다. (이미 등록된 건은 제외) <a href="/calendar" class="underline">캘린더 보기</a></div>{% endif %}
+
+<p class="text-xs text-slate-500 mb-4">급여·매출·매입 자료를 기반으로 자동 집계됩니다. 원천세는 급여의 소득세(국세)·지방소득세, 부가가치세는 매출세액−매입세액, 4대보험은 근로자+회사 부담분입니다. (법인세는 연간 영업이익 기준 추정치)</p>
+
+<!-- 연간 요약 카드 -->
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  <div class="kpi-card" style="border-color:var(--inviz-purple);">
+    <div class="text-xs text-slate-500">원천세 (국세·소득세)</div>
+    <div class="text-xl font-bold mt-1" style="color:var(--inviz-purple);">{{ annual.wht_nat|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#0EA5E9;">
+    <div class="text-xs text-slate-500">지방소득세</div>
+    <div class="text-xl font-bold text-sky-700 mt-1">{{ annual.wht_local|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#F59E0B;">
+    <div class="text-xs text-slate-500">부가가치세 (납부)</div>
+    <div class="text-xl font-bold text-amber-700 mt-1">{{ annual.vat|money }}</div>
+    <div class="text-xs text-slate-400">매출 {{ annual.svat|money }} − 매입 {{ annual.pvat|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#EC4899;">
+    <div class="text-xs text-slate-500">4대보험 (근로자+회사)</div>
+    <div class="text-xl font-bold text-pink-700 mt-1">{{ annual.ins|money }}</div>
+    <div class="text-xs text-slate-400">회사분 {{ annual.ins_corp|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#10B981;">
+    <div class="text-xs text-slate-500">법인세 (연간 추정)</div>
+    <div class="text-xl font-bold text-green-700 mt-1">{{ corp_tax|money }}</div>
+    <div class="text-xs text-slate-400">영업이익×10% 추정</div>
+  </div>
+</div>
+
+<!-- 기간별 표 -->
+<div class="card mb-4">
+  <h3 class="font-semibold mb-3 text-slate-700">{{ year }}년 {{ '월별' if view=='month' else '분기별' }} 세금·4대보험</h3>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr>
+        <th>기간</th>
+        <th class="num">원천세(국세)</th><th class="num">지방소득세</th><th class="num">원천세 계</th>
+        <th class="num">매출세액</th><th class="num">매입세액</th><th class="num">부가세 납부</th>
+        <th class="num">4대보험(근로자)</th><th class="num">4대보험(회사)</th>
+        <th class="num">세금 합계</th>
+      </tr></thead>
+      <tbody>
+        {% for p in periods %}
+        <tr {% if p.tax_total or p.ins %}{% else %}class="text-slate-300"{% endif %}>
+          <td class="font-medium">{{ p.label }}</td>
+          <td class="num">{{ p.wht_nat|money }}</td>
+          <td class="num text-slate-500">{{ p.wht_local|money }}</td>
+          <td class="num font-semibold">{{ p.wht|money }}</td>
+          <td class="num text-slate-500">{{ p.svat|money }}</td>
+          <td class="num text-slate-500">{{ p.pvat|money }}</td>
+          <td class="num font-semibold {{ 'text-amber-700' if p.vat>0 else ('text-green-700' if p.vat<0 else '') }}">{{ p.vat|money }}</td>
+          <td class="num text-slate-500">{{ p.ins_emp|money }}</td>
+          <td class="num text-pink-700">{{ p.ins_corp|money }}</td>
+          <td class="num font-bold" style="color:var(--inviz-purple);">{{ p.tax_total|money }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="font-bold bg-slate-50">
+          <td>연간 합계</td>
+          <td class="num">{{ annual.wht_nat|money }}</td>
+          <td class="num">{{ annual.wht_local|money }}</td>
+          <td class="num">{{ annual.wht|money }}</td>
+          <td class="num">{{ annual.svat|money }}</td>
+          <td class="num">{{ annual.pvat|money }}</td>
+          <td class="num">{{ annual.vat|money }}</td>
+          <td class="num">{{ annual.ins_emp|money }}</td>
+          <td class="num">{{ annual.ins_corp|money }}</td>
+          <td class="num" style="color:var(--inviz-purple);">{{ annual.tax_total|money }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card text-xs text-slate-500 leading-relaxed">
+  <b>신고·납부 안내</b><br>
+  · <b>원천세(소득세·지방소득세)</b> — 다음 달 10일까지 신고·납부 (상시 20인 이하 반기납부 가능)<br>
+  · <b>4대보험</b> — 매월 고지·납부 (근로자분은 급여에서 공제, 회사분은 회사 부담)<br>
+  · <b>부가가치세</b> — 분기/반기 신고 (법인 1·4·7·10월). 매출세액 − 매입세액 = 납부(음수면 환급)<br>
+  · <b>법인세</b> — 사업연도 종료 후 3개월 내 신고. 위 추정치는 영업이익×10% 단순 추정이며 실제와 다를 수 있습니다.
+</div>
+{% endblock %}

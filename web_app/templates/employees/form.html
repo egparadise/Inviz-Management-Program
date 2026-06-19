@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}직원 수정{% else %}직원 신규{% endif %}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4 text-slate-800">{% if row %}직원 수정{% else %}직원 신규 등록{% endif %}</h1>
+<form method="post" action="{% if row %}/employees/{{ row.code }}{% else %}/employees{% endif %}" class="card max-w-2xl">
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="text-sm font-medium text-slate-700">사번 *</label>
+      {% if row %}<input type="text" class="input bg-slate-100" readonly value="{{ row.code }}">
+      {% else %}<input type="text" name="code" class="input" required placeholder="IV_64 또는 E0064">{% endif %}
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">성명 *</label>
+      <input type="text" name="name" class="input" required value="{{ row.name if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">부서</label>
+      <select name="department" class="select">
+        {% set d = row.department if row else '' %}
+        <option value="">선택</option>
+        {% for c in ['연구개발', '영업', '서비스', '관리', '어플리케이션'] %}<option value="{{ c }}" {% if d == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">직급</label>
+      <input type="text" name="rank" class="input" value="{{ row.rank if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">고용형태</label>
+      <select name="employment_type" class="select">
+        {% set e = row.employment_type if row else '정규' %}
+        {% for c in ['정규', '계약', '일용', '임원'] %}<option value="{{ c }}" {% if e == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">상태</label>
+      <select name="active" class="select">
+        {% set a = row.active if row else '재직' %}
+        {% for c in ['재직', '퇴직', '휴직'] %}<option value="{{ c }}" {% if a == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">입사일</label>
+      <input type="date" name="hire_date" class="input" value="{{ row.hire_date|date if row and row.hire_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">퇴사일</label>
+      <input type="date" name="resign_date" class="input" value="{{ row.resign_date|date if row and row.resign_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">기준임금</label>
+      <div class="flex gap-2">
+        <select name="salary_annual" id="salary_annual_sel" class="select" style="width:90px;" onchange="updateSalaryLink()">
+          {% set sa = row.salary_annual if row else 'N' %}
+          <option value="N" {% if sa != 'Y' %}selected{% endif %}>월급</option>
+          <option value="Y" {% if sa == 'Y' %}selected{% endif %}>연봉</option>
+        </select>
+        <input type="number" name="base_salary" id="base_salary_inp" class="input num flex-1" value="{{ row.base_salary|round|int if row and row.base_salary else 0 }}" oninput="updateSalaryLink()" placeholder="금액">
+      </div>
+      <div class="text-xs mt-1" id="salary_hint" style="color:var(--inviz-purple);">연봉/월급을 선택하고 금액을 입력하면 환산액이 표시됩니다.</div>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">퇴직연금</label>
+      <select name="pension_enrolled" class="select">
+        <option value="Y" {% if not row or row.pension_enrolled == 'Y' %}selected{% endif %}>가입</option>
+        <option value="N" {% if row and row.pension_enrolled == 'N' %}selected{% endif %}>미가입</option>
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">📧 이메일 <span class="text-xs text-slate-400">(명세서 발송)</span></label>
+      <input type="email" name="email" class="input" value="{{ row.email if row and row.email else '' }}" placeholder="name@inviz.co.kr">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">🎂 생년월일 <span class="text-xs text-slate-400">(명세서 PDF 비밀번호)</span></label>
+      <input type="date" name="birth_date" class="input" value="{{ row.birth_date|date if row and row.birth_date else '' }}">
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">비고</label>
+      <textarea name="note" class="textarea" rows="2">{{ row.note if row else '' }}</textarea>
+    </div>
+  </div>
+  <div class="flex gap-2 mt-6">
+    <button class="btn btn-primary">{% if row %}수정{% else %}등록{% endif %}</button>
+    <a href="/employees" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+<script>
+function _won(n){ return (Math.round(n)||0).toLocaleString(); }
+function updateSalaryLink(){
+  const sel=document.getElementById('salary_annual_sel');
+  const inp=document.getElementById('base_salary_inp');
+  const hint=document.getElementById('salary_hint');
+  const v=parseFloat((''+inp.value).replace(/,/g,''))||0;
+  if(!v){ hint.textContent='연봉/월급을 선택하고 금액을 입력하면 환산액이 표시됩니다.'; return; }
+  if(sel.value==='Y'){      // 연봉 입력 → 월 환산
+    hint.innerHTML='💡 연봉 '+_won(v)+'원 ÷12 → <b>월 '+_won(v/12)+'원</b> (급여 등록 시 월 기본급으로 자동 입력)';
+  } else {                  // 월급 입력 → 연봉 환산
+    hint.innerHTML='💡 월급 '+_won(v)+'원 ×12 → <b>연봉 '+_won(v*12)+'원</b>';
+  }
+}
+updateSalaryLink();
+</script>
+{% endblock %}

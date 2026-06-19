@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ tpl.name }} — {{ cat_label }}{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">
+    {{ cat_label }} · {{ tpl.name }}
+    <span class="badge" style="background:#fde8e8;color:#b91c1c;">PDF</span>
+    <span class="badge badge-purple" title="이 분석에 사용되는 AI 모델">🤖 {{ ai_label() }}</span>
+  </h1>
+  <a href="{{ '/reports/' + tpl.category if tpl.category else '/reports' }}" class="btn btn-secondary">← 목록</a>
+</div>
+
+<!-- 업로드한 PDF 양식 원문 (접이식) -->
+<div class="card mb-4">
+  <button type="button" class="collapse-head" onclick="invizToggleSec(this)" style="border-color:#e5e7eb;background:#f8fafc;">
+    <span class="text-xs font-semibold" style="color:var(--inviz-purple);">📄 업로드한 양식 원문 (PDF 추출 텍스트)</span>
+    <span class="collapse-chev">▸ 펼치기</span>
+  </button>
+  <div class="collapse-body hidden">
+    <pre class="text-xs whitespace-pre-wrap text-slate-600" style="max-height:320px;overflow:auto;">{{ pdf_text }}</pre>
+  </div>
+</div>
+
+<!-- AI 분석 -->
+<div class="card mb-4">
+  <div class="flex items-center gap-3 flex-wrap">
+    <span class="text-sm font-semibold" style="color:var(--inviz-purple);">🤖 AI 분석</span>
+    <label class="text-xs text-slate-500">기준 연도
+      <select id="pdfYear" class="input" style="width:auto;display:inline-block;padding:4px 8px;margin-left:4px;">
+        <option>2026</option><option>2025</option><option>2024</option>
+      </select>
+    </label>
+    <button type="button" class="btn btn-primary" id="pdfAnalyzeBtn" onclick="analyzePdf()">🤖 AI로 양식 채우기</button>
+    <span id="pdfBusy" class="hidden items-center gap-2 text-sm" style="color:var(--inviz-purple);">
+      <span class="ai-dots"><span></span><span></span><span></span></span> AI가 분석 중...
+    </span>
+  </div>
+  <p class="text-xs text-slate-500 mt-2">양식의 항목을 회사 재무데이터로 채웁니다. 결과는 직접 수정 후 Excel·PDF로 출력할 수 있습니다.</p>
+  <p class="text-xs text-amber-600 mt-1">※ 오픈소스(Ollama) 모델은 최초 분석 시 모델 로딩으로 1~2분 걸릴 수 있습니다(이후 빨라짐). 빠른 분석은 <a href="/settings" class="underline">설정</a>에서 상용 AI로 전환하세요. 실패 시 기본 손익표로 채워집니다.</p>
+</div>
+
+<div class="card">
+  <div id="pdfResult">
+    {% if rows %}
+      {% include "reports/_pdf_table.html" %}
+    {% else %}
+      <div class="text-center text-slate-400 py-8">위 <b>🤖 AI로 양식 채우기</b> 버튼을 눌러 분석을 시작하세요.</div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+const RID = {{ tpl.id }};
+
+async function analyzePdf() {
+  const btn = document.getElementById('pdfAnalyzeBtn');
+  const busy = document.getElementById('pdfBusy');
+  const year = document.getElementById('pdfYear').value;
+  btn.disabled = true; busy.classList.remove('hidden'); busy.style.display='inline-flex';
+  try {
+    const r = await fetch(`/reports/${RID}/analyze-pdf`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({year}),
+    });
+    const html = await r.text();
+    document.getElementById('pdfResult').innerHTML = html;
+  } catch (e) {
+    document.getElementById('pdfResult').innerHTML = '<div class="text-red-600 text-sm py-4">분석 실패: ' + e + '</div>';
+  } finally {
+    btn.disabled = false; busy.classList.add('hidden'); busy.style.display='none';
+  }
+}
+
+function pdfGather() {
+  const rows = [];
+  document.querySelectorAll('#pdfTbl tbody tr').forEach(tr => {
+    const it = tr.querySelector('.it')?.value.trim();
+    if (!it) return;
+    const amt = parseFloat((tr.querySelector('.amt')?.value || '0').replace(/,/g,'')) || 0;
+    const note = tr.querySelector('.note')?.value || '';
+    rows.push({'항목': it, '금액': amt, '비고': note});
+  });
+  return rows;
+}
+
+function pdfAddRow() {
+  const tb = document.querySelector('#pdfTbl tbody');
+  if (!tb) return;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><input class="input it" value=""></td>
+    <td><input class="input amt num" type="number" value="0" style="text-align:right"></td>
+    <td><input class="input note" value=""></td>
+    <td><button type="button" class="text-red-500 text-xs" onclick="this.closest('tr').remove()">✕</button></td>`;
+  tb.appendChild(tr);
+}
+
+async function pdfSave() {
+  const rows = pdfGather();
+  const r = await fetch(`/reports/${RID}/pdf-save`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({rows}),
+  });
+  const d = await r.json();
+  const el = document.getElementById('pdfSnapId');
+  if (el && d.snap_id) el.value = d.snap_id;
+  return d.snap_id;
+}
+
+async function pdfExport(fmt) {
+  const snapId = await pdfSave();              // 편집 내용 먼저 저장 후 그 스냅샷으로 출력
+  window.location = `/reports/${RID}/export.${fmt}` + (snapId ? `?snapshot=${snapId}` : '');
+}
+</script>
+{% endblock %}

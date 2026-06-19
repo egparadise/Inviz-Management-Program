@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}제품 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold text-slate-800">제품 마스터</h1>
+  <a href="/products/new" class="btn btn-primary">+ 신규 제품</a>
+</div>
+
+<div class="card mb-6">
+  <h3 class="font-semibold mb-3 text-slate-700">등록된 제품 ({{ rows|length }})</h3>
+  <table class="table">
+    <thead><tr><th>코드</th><th>제품명</th><th>카테고리</th><th>그룹</th><th>단가기준</th><th>비고</th><th></th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="font-mono text-xs"><span class="badge badge-blue">{{ r.code }}</span></td>
+        <td class="font-medium">{{ r.name }}</td>
+        <td>{{ r.category or '' }}</td>
+        <td>{{ r.group or '' }}</td>
+        <td>{{ r.unit_basis or '' }}</td>
+        <td class="text-xs text-slate-500">{{ r.note or '' }}</td>
+        <td>
+          <a href="/products/{{ r.code }}/edit" class="text-blue-600 text-xs">수정</a>
+          <form method="post" action="/products/{{ r.code }}/delete" class="inline" onsubmit="return confirm('삭제?')">
+            <button class="text-red-600 text-xs ml-2">삭제</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3 class="font-semibold mb-3 text-slate-700">품명 → 제품코드 자동 매핑 룰</h3>
+  <p class="text-xs text-slate-500 mb-3">매출/매입 입력 시 품명에 키워드가 포함되면 자동으로 제품코드가 지정됩니다. 우선순위 낮은 값이 먼저 적용됩니다.</p>
+  <table class="table mb-4">
+    <thead><tr><th>우선순위</th><th>매칭 패턴</th><th>제품코드</th><th>제품명</th><th>기본 매출유형</th><th>비고</th><th></th></tr></thead>
+    <tbody>
+      {% for m in mappings %}
+      <tr>
+        <td>{{ m.priority }}</td>
+        <td><code class="text-xs bg-slate-100 px-2 py-1 rounded">{{ m.pattern }}</code></td>
+        <td><span class="badge badge-blue">{{ m.product_code }}</span></td>
+        <td>{{ m.product_name }}</td>
+        <td>{{ m.default_sale_type or '' }}</td>
+        <td class="text-xs text-slate-500">{{ m.note or '' }}</td>
+        <td>
+          <form method="post" action="/products/mappings/{{ m.id }}/delete" class="inline" onsubmit="return confirm('삭제?')">
+            <button class="text-red-600 text-xs">삭제</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/products/mappings" class="grid grid-cols-6 gap-3 items-end pt-3 border-t">
+    <div><label class="text-xs text-slate-500">우선순위</label><input type="number" name="priority" value="10" class="input"></div>
+    <div><label class="text-xs text-slate-500">패턴</label><input type="text" name="pattern" class="input" required></div>
+    <div>
+      <label class="text-xs text-slate-500">제품코드</label>
+      <select name="product_code" class="select" required onchange="updateProductName(this)">
+        {% for r in rows %}<option value="{{ r.code }}" data-name="{{ r.name }}">{{ r.code }} - {{ r.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><label class="text-xs text-slate-500">제품명</label><input type="text" name="product_name" id="map_name" class="input" required></div>
+    <div><label class="text-xs text-slate-500">기본 매출유형</label><input type="text" name="default_sale_type" class="input"></div>
+    <button class="btn btn-primary">매핑 추가</button>
+  </form>
+</div>
+<script>
+function updateProductName(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('map_name').value = opt.dataset.name || '';
+}
+const sel = document.querySelector('select[name=product_code]');
+if (sel) updateProductName(sel);
+</script>
+{% endblock %}

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}계좌 현황 — 자금/계좌 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">💳 자금/계좌 현황</h1>
+  <div class="flex gap-2">
+    <a href="/banking/transactions" class="btn btn-secondary text-sm">💸 거래내역</a>
+    <a href="/banking/cards" class="btn btn-secondary text-sm">💳 카드</a>
+    <a href="/settings/banking" class="btn btn-secondary text-sm">⚙ 계좌·카드 설정</a>
+  </div>
+</div>
+
+<!-- 합계 -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <div class="kpi-card" style="border-color:var(--inviz-purple);">
+    <div class="text-xs text-slate-500">총 예금 잔액</div>
+    <div class="text-2xl font-bold mt-1" style="color:var(--inviz-purple);">{{ total_balance|money }}</div>
+    <div class="text-xs text-slate-400 mt-1">활성 계좌 합계</div>
+  </div>
+  <div class="kpi-card"><div class="text-xs text-slate-500">등록 계좌</div><div class="text-2xl font-bold text-slate-800 mt-1">{{ accounts|length }}</div></div>
+  <div class="kpi-card"><div class="text-xs text-slate-500">등록 카드</div><div class="text-2xl font-bold text-slate-800 mt-1">{{ card_info|length }}</div></div>
+  <div class="kpi-card"><div class="text-xs text-slate-500">거래내역</div><div class="text-2xl font-bold text-slate-800 mt-1">{{ tx_count }}</div><div class="text-xs text-slate-400 mt-1">건</div></div>
+</div>
+
+{% if not accounts %}
+<div class="card mb-4 bg-amber-50 border border-amber-200 text-sm text-amber-800">
+  등록된 계좌가 없습니다. <a href="/settings/banking" class="underline font-semibold">설정 ▸ 은행·카드</a>에서 계좌를 등록하세요.
+</div>
+{% endif %}
+
+<!-- 은행별 계좌 -->
+{% for bank, accs in by_bank.items() %}
+<div class="card mb-3">
+  <div class="flex items-center justify-between mb-2">
+    <h3 class="font-semibold" style="color:var(--inviz-purple);">🏦 {{ bank }} <span class="text-xs font-normal text-slate-400">({{ accs|length }}개 계좌)</span></h3>
+    <span class="text-sm font-bold">{{ (accs|sum(attribute='balance'))|money }}</span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>별칭/용도</th><th>계좌번호</th><th>종류</th><th class="num">잔액</th><th>기준일</th><th>상태</th><th></th></tr></thead>
+      <tbody>
+        {% for a in accs %}
+        <tr {% if a.active != 'Y' %}class="text-slate-400"{% endif %}>
+          <td class="font-medium">{{ a.account_alias or '-' }}</td>
+          <td class="text-xs font-mono">{{ a.account_no or '' }}</td>
+          <td class="text-xs">{{ a.account_type or '' }}</td>
+          <td class="num font-semibold">{{ a.balance|money }}</td>
+          <td class="text-xs">{{ a.balance_date|date if a.balance_date else '-' }}</td>
+          <td>{% if a.active=='Y' %}<span class="badge badge-green">활성</span>{% else %}<span class="badge badge-orange">비활성</span>{% endif %}</td>
+          <td class="whitespace-nowrap">
+            <a href="/banking/transactions?account_id={{ a.id }}" class="text-purple-700 text-xs">거래내역</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<!-- 카드 요약 -->
+{% if card_info %}
+<div class="card mb-3">
+  <h3 class="font-semibold mb-2" style="color:var(--inviz-purple);">💳 카드 — 한도·출금일</h3>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>카드</th><th>발급사</th><th class="num">이번달 사용</th><th class="num">한도</th><th>사용률</th><th>출금예정</th></tr></thead>
+      <tbody>
+        {% for ci in card_info %}
+        <tr>
+          <td class="font-medium">{{ ci.c.card_name }}{% if ci.c.card_no_last4 %} <span class="text-xs text-slate-400">****{{ ci.c.card_no_last4 }}</span>{% endif %}</td>
+          <td class="text-xs">{{ ci.c.issuer or '' }}</td>
+          <td class="num">{{ ci.used|money }}</td>
+          <td class="num text-slate-500">{{ ci.limit|money }}</td>
+          <td style="min-width:120px;">
+            {% if ci.limit %}
+            <div class="flex items-center gap-2">
+              <div style="flex:1;height:8px;background:#E5E7EB;border-radius:4px;overflow:hidden;">
+                <div style="height:100%;width:{{ [ci.pct,100]|min }}%;background:{{ '#EF4444' if ci.pct>=90 else ('#F59E0B' if ci.pct>=70 else '#10B981') }};"></div>
+              </div>
+              <span class="text-xs {{ 'text-red-600 font-bold' if ci.pct>=90 else 'text-slate-500' }}">{{ ci.pct }}%</span>
+            </div>
+            {% else %}<span class="text-xs text-slate-300">한도 미설정</span>{% endif %}
+          </td>
+          <td class="text-xs">
+            {% if ci.next_billing %}{{ ci.next_billing|date }}
+              {% if ci.days_to is not none and ci.days_to <= 3 %}<span class="badge badge-orange ml-1">D-{{ ci.days_to }}</span>{% endif %}
+            {% else %}<span class="text-slate-300">미설정</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- 최근 거래 -->
+<div class="card">
+  <h3 class="font-semibold mb-2 text-slate-700">최근 거래</h3>
+  {% if recent %}
+  <table class="table">
+    <thead><tr><th>일자</th><th>계좌</th><th>구분</th><th>내용</th><th class="num">금액</th><th class="num">잔액</th></tr></thead>
+    <tbody>
+      {% for t in recent %}
+      <tr>
+        <td class="text-xs whitespace-nowrap">{{ t.tx_date|date }}</td>
+        <td class="text-xs">{{ acc_name.get(t.account_id, '') }}</td>
+        <td>{% if t.direction=='in' %}<span class="badge badge-green">입금</span>{% else %}<span class="badge badge-red">출금</span>{% endif %}</td>
+        <td class="text-xs" style="max-width:240px;"><div class="truncate" title="{{ t.counterparty }}">{{ t.counterparty or '' }}</div></td>
+        <td class="num {{ 'text-green-700' if t.direction=='in' else 'text-red-600' }}">{{ '+' if t.direction=='in' else '-' }}{{ t.amount|money }}</td>
+        <td class="num text-slate-500">{{ t.balance_after|money if t.balance_after is not none else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<div class="text-center text-slate-400 py-6">거래내역이 없습니다. <a href="/banking/transactions" class="underline">거래내역</a>에서 엑셀/CSV를 업로드하세요.</div>{% endif %}
+</div>
+{% endblock %}

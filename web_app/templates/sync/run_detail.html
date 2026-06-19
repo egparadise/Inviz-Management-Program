@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}동기화 #{{ run.id }} — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-800">동기화 실행 #{{ run.id }}</h1>
+    <div class="text-sm text-slate-500 mt-1">
+      {{ run.started_at.strftime('%Y-%m-%d %H:%M:%S') }}
+      {% if run.finished_at %} ~ {{ run.finished_at.strftime('%H:%M:%S') }}
+        (소요 {{ ((run.finished_at - run.started_at).total_seconds())|int }}초){% endif %}
+      · 트리거: <span class="badge badge-gray">{{ run.triggered_by }}</span>
+    </div>
+  </div>
+  <a href="/sync" class="btn btn-secondary">← 동기화 메인</a>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">상태</div>
+    <div class="text-lg font-bold mt-1">
+      {% if run.status == 'success' %}<span class="text-green-700">성공</span>
+      {% elif run.status == 'partial' %}<span class="text-amber-700">부분 성공</span>
+      {% elif run.status == 'running' %}<span class="text-blue-700">실행중</span>
+      {% else %}<span class="text-red-700">{{ run.status }}</span>{% endif %}
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">파일 스캔</div>
+    <div class="text-lg font-bold mt-1">{{ run.files_scanned }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">변경된 파일</div>
+    <div class="text-lg font-bold mt-1">{{ run.files_changed }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">처리 완료</div>
+    <div class="text-lg font-bold text-green-700 mt-1">{{ run.files_processed }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">오류</div>
+    <div class="text-lg font-bold {% if run.files_errored %}text-red-700{% endif %} mt-1">{{ run.files_errored }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">행 변화</div>
+    <div class="text-lg font-bold mt-1"><span class="text-green-700">+{{ run.rows_added|money }}</span> / <span class="text-amber-700">-{{ run.rows_removed|money }}</span></div>
+  </div>
+</div>
+
+{% if run.error %}
+<div class="card mb-4 bg-red-50 border border-red-300">
+  <h3 class="font-semibold text-red-800 mb-2">전체 실행 오류</h3>
+  <pre class="text-xs text-red-700 whitespace-pre-wrap">{{ run.error }}</pre>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3 class="font-semibold text-slate-700 mb-3">파일별 처리 결과 ({{ details|length }}건)</h3>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>도메인</th>
+          <th>파일</th>
+          <th>액션</th>
+          <th class="num">+행</th>
+          <th class="num">-행</th>
+          <th class="num">소요(ms)</th>
+          <th>오류</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in details %}
+        <tr {% if d.action == 'error' %}class="bg-red-50"{% endif %}>
+          <td><span class="badge {% if d.domain %}badge-blue{% else %}badge-gray{% endif %}">{{ d.domain or '-' }}</span></td>
+          <td class="text-xs">{{ d.file_name }}</td>
+          <td>
+            {% if d.action == 'processed' %}<span class="badge badge-green">처리</span>
+            {% elif d.action == 'error' %}<span class="badge badge-red">오류</span>
+            {% elif d.action == 'unmapped' %}<span class="badge badge-gray">미매핑</span>
+            {% else %}<span class="badge badge-gray">{{ d.action }}</span>{% endif %}
+          </td>
+          <td class="num text-green-700">+{{ d.rows_added|money }}</td>
+          <td class="num text-amber-700">-{{ d.rows_removed|money }}</td>
+          <td class="num text-slate-500">{{ d.duration_ms or '' }}</td>
+          <td class="text-xs text-red-600 max-w-md truncate" title="{{ d.error or '' }}">{{ (d.error or '')[:120] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

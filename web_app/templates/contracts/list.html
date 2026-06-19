@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}계약 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold text-slate-800">계약 마스터</h1>
+  <a href="/contracts/new" class="btn btn-primary">+ 신규 계약</a>
+</div>
+
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-4 gap-3">
+    <input type="text" name="q" value="{{ filter.q }}" class="input" placeholder="계약명·거래처 검색">
+    <select name="status" class="select">
+      <option value="">상태 전체</option>
+      {% for s in ['진행', '만료', '해지'] %}<option value="{{ s }}" {% if filter.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+    <select name="kind" class="select">
+      <option value="">구분 전체</option>
+      {% for k in ['유지보수', '장비', 'AI', '판독', '임대', '기타'] %}<option value="{{ k }}" {% if filter.kind == k %}selected{% endif %}>{{ k }}</option>{% endfor %}
+    </select>
+    <div class="flex gap-2"><button class="btn btn-primary flex-1">필터</button><a href="/contracts" class="btn btn-secondary">초기화</a></div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="flex justify-between mb-3">
+    <div class="text-sm text-slate-600">
+      총 <span class="font-semibold">{{ total_count|money }}</span>건 · 계약금 합계 <span class="font-bold">{{ total_amount|money }}</span>원 · 미수금 <span class="font-bold text-red-600">{{ total_unpaid|money }}</span>원
+    </div>
+    <div class="text-xs text-slate-500">{{ page }}/{{ total_pages }}</div>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>ID</th><th>계약명</th><th>거래처</th><th>구분</th><th>시작일</th><th>만료일</th><th>잔여일</th><th class="num">계약금액</th><th class="num">미수금</th><th>상태</th><th>담당</th><th></th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.id }}</td>
+          <td class="font-medium">{{ r.name or '' }}</td>
+          <td>{{ r.party_name or '' }}</td>
+          <td><span class="badge badge-gray">{{ r.kind or '' }}</span></td>
+          <td class="whitespace-nowrap">{{ r.start_date|date }}</td>
+          <td class="whitespace-nowrap">{{ r.end_date|date }}</td>
+          <td class="num {% if r.remain_days is not none and r.remain_days < 30 %}text-red-600 font-semibold{% endif %}">{{ r.remain_days if r.remain_days is not none else '' }}</td>
+          <td class="num">{{ r.contract_amount|money }}</td>
+          <td class="num {% if r.unpaid_amount > 0 %}text-red-600 font-semibold{% endif %}">{{ r.unpaid_amount|money }}</td>
+          <td>{% if r.status == '진행' %}<span class="badge badge-green">진행</span>{% elif r.status == '만료' %}<span class="badge badge-gray">만료</span>{% else %}<span class="badge badge-red">{{ r.status or '' }}</span>{% endif %}</td>
+          <td class="text-xs">{{ r.owner or '' }}</td>
+          <td>
+            <a href="/contracts/{{ r.id }}/edit" class="text-blue-600 text-xs">수정</a>
+            <form method="post" action="/contracts/{{ r.id }}/delete" class="inline" onsubmit="return confirm('삭제?')">
+              <button class="text-red-600 text-xs ml-2">삭제</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="flex justify-center gap-2 mt-4">
+    {% set qs = '&q=' ~ filter.q ~ '&status=' ~ filter.status ~ '&kind=' ~ filter.kind %}
+    {% if page > 1 %}<a href="?page={{ page-1 }}{{ qs }}" class="btn btn-secondary">이전</a>{% endif %}
+    <span class="px-3 py-2 text-sm">{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}<a href="?page={{ page+1 }}{{ qs }}" class="btn btn-secondary">다음</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

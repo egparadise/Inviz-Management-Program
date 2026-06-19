@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "inviz-management": {
+      "command": "python",
+      "args": [
+        "${workspaceFolder}/.claude/mcp/inviz_mcp_server.py"
+      ],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  }
+}

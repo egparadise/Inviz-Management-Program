@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}추적 파일 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold text-slate-800">추적 파일 ({{ files|length }}건)</h1>
+  <a href="/sync" class="btn btn-secondary">← 동기화 메인</a>
+</div>
+
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-4 gap-3">
+    <select name="domain" class="select">
+      <option value="">전체 도메인</option>
+      {% for d in domains %}<option value="{{ d }}" {% if filter.domain == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+    </select>
+    <select name="status" class="select">
+      <option value="">전체 상태</option>
+      {% for s in ['new', 'changed', 'processed', 'error', 'unmapped'] %}
+      <option value="{{ s }}" {% if filter.status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" name="q" value="{{ filter.q }}" class="input" placeholder="파일명 검색">
+    <div class="flex gap-2"><button class="btn btn-primary flex-1">필터</button><a href="/sync/files" class="btn btn-secondary">초기화</a></div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>파일명</th>
+          <th>경로</th>
+          <th>도메인</th>
+          <th>최신?</th>
+          <th>상태</th>
+          <th>수정시각</th>
+          <th class="num">크기(KB)</th>
+          <th class="num">적재행수</th>
+          <th>마지막 처리</th>
+          <th>오류</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in files %}
+        <tr {% if f.last_error %}class="bg-red-50"{% endif %}>
+          <td class="text-xs font-medium">{{ f.file_name }}</td>
+          <td class="text-xs text-slate-500" title="{{ f.rel_path }}">{{ f.rel_path[:50] }}{% if f.rel_path|length > 50 %}…{% endif %}</td>
+          <td>{% if f.domain %}<span class="badge badge-blue">{{ f.domain }}</span>{% else %}<span class="badge badge-gray">-</span>{% endif %}</td>
+          <td>{% if f.is_latest_for_domain == 'Y' %}<span class="badge badge-green">최신</span>{% endif %}</td>
+          <td>
+            {% if f.status == 'processed' %}<span class="badge badge-green">완료</span>
+            {% elif f.status == 'error' %}<span class="badge badge-red">오류</span>
+            {% elif f.status == 'changed' %}<span class="badge badge-blue">변경</span>
+            {% elif f.status == 'new' %}<span class="badge badge-blue">신규</span>
+            {% elif f.status == 'unmapped' %}<span class="badge badge-gray">미매핑</span>
+            {% else %}<span class="badge badge-gray">{{ f.status }}</span>{% endif %}
+          </td>
+          <td class="text-xs whitespace-nowrap">{{ f.mtime.strftime('%Y-%m-%d %H:%M') if f.mtime else '' }}</td>
+          <td class="num text-xs">{{ ((f.size_bytes or 0) / 1024)|round|int }}</td>
+          <td class="num">{{ f.rows_loaded|money if f.rows_loaded else '' }}</td>
+          <td class="text-xs text-slate-500">{{ f.last_processed_at.strftime('%Y-%m-%d %H:%M') if f.last_processed_at else '-' }}</td>
+          <td class="text-xs text-red-600 max-w-xs truncate" title="{{ f.last_error or '' }}">{{ (f.last_error or '')[:80] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

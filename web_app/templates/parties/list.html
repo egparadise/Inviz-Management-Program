@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}거래처 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold text-slate-800">거래처 마스터</h1>
+  <a href="/parties/new" class="btn btn-primary">+ 신규 거래처</a>
+</div>
+
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-4 gap-3">
+    <input type="text" name="q" value="{{ filter.q }}" class="input" placeholder="이름·코드·사업자번호 검색">
+    <select name="category" class="select">
+      <option value="">구분 전체</option>
+      {% for c in categories %}<option value="{{ c }}" {% if filter.category == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+    <select name="active" class="select">
+      <option value="">활성 전체</option>
+      <option value="Y" {% if filter.active == 'Y' %}selected{% endif %}>활성(Y)</option>
+      <option value="N" {% if filter.active == 'N' %}selected{% endif %}>비활성(N)</option>
+    </select>
+    <div class="flex gap-2">
+      <button class="btn btn-primary flex-1">필터</button>
+      <a href="/parties" class="btn btn-secondary">초기화</a>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="text-sm text-slate-600 mb-3">총 <span class="font-semibold">{{ total_count|money }}</span>개 거래처</div>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>코드</th><th>이름</th><th>구분</th><th>사업자번호</th><th>주거래 제품</th><th>활성</th><th>최종거래</th><th>비고</th><th></th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.code }}</td>
+          <td class="font-medium">{{ r.name }}</td>
+          <td><span class="badge badge-blue">{{ r.category or '미분류' }}</span></td>
+          <td class="text-xs text-slate-500">{{ r.biz_no or '' }}</td>
+          <td class="text-xs">{{ r.main_product or '' }}</td>
+          <td>{% if r.active == 'Y' %}<span class="badge badge-green">활성</span>{% else %}<span class="badge badge-gray">비활성</span>{% endif %}</td>
+          <td class="text-xs text-slate-500">{{ r.last_seen|date }}</td>
+          <td class="text-xs text-slate-500">{{ r.note or '' }}</td>
+          <td>
+            <a href="/parties/{{ r.code }}/edit" class="text-blue-600 text-xs">수정</a>
+            <form method="post" action="/parties/{{ r.code }}/delete" class="inline" onsubmit="return confirm('삭제?')">
+              <button class="text-red-600 text-xs ml-2">삭제</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="flex justify-center gap-2 mt-4">
+    {% set qs = '&q=' ~ filter.q ~ '&category=' ~ filter.category ~ '&active=' ~ filter.active %}
+    {% if page > 1 %}<a href="?page={{ page-1 }}{{ qs }}" class="btn btn-secondary">이전</a>{% endif %}
+    <span class="px-3 py-2 text-sm text-slate-600">{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}<a href="?page={{ page+1 }}{{ qs }}" class="btn btn-secondary">다음</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

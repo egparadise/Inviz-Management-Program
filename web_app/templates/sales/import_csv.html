@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}매출 CSV 업로드 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">매출 CSV 업로드</h1>
+  <a href="/sales" class="btn btn-secondary">← 매출 목록</a>
+</div>
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">사용 방법</h3>
+  <ol class="text-sm text-slate-700 space-y-1 ml-4 list-decimal">
+    <li><a href="/sales/import-csv/template" class="text-purple-700 underline font-semibold">표준 양식 CSV 다운로드</a> 후 Excel/메모장에서 편집</li>
+    <li>한 행에 1건. 일자는 <code>YYYY-MM-DD</code> 형식.</li>
+    <li>거래처코드는 비워두면 거래처명 그대로 저장됩니다 (DIM_거래처와 자동 매칭은 추후).</li>
+    <li>제품코드를 비우면 품명을 보고 자동 매핑 룰(32_제품매핑)이 적용됩니다.</li>
+    <li>업로드 → 미리보기 → 문제 없으면 "적용" 버튼.</li>
+  </ol>
+  <div class="text-xs text-slate-500 mt-2">
+    필수 헤더: {{ headers | join(' , ') }}
+  </div>
+</div>
+
+{% if not preview %}
+<form method="post" action="/sales/import-csv/preview" enctype="multipart/form-data" class="card">
+  <label class="block">
+    <span class="text-sm font-medium text-slate-700">CSV 파일 선택 (UTF-8 또는 CP949)</span>
+    <input type="file" name="file" accept=".csv" required class="mt-2 block w-full text-sm text-slate-600
+      file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold
+      file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 cursor-pointer">
+  </label>
+  <button class="btn btn-primary mt-4">미리보기</button>
+</form>
+{% endif %}
+
+{% if errors %}
+<div class="card mb-4 bg-red-50 border border-red-300">
+  <h3 class="font-semibold text-red-800 mb-2">검증 오류 ({{ errors|length }}건)</h3>
+  <ul class="text-sm text-red-700 space-y-1">
+    {% for e in errors %}<li>• {{ e }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if preview %}
+<div class="card mb-4">
+  <div class="flex justify-between items-center mb-3">
+    <h3 class="font-semibold" style="color: var(--inviz-purple);">미리보기 ({{ preview|length }}건)</h3>
+    <div class="text-sm">
+      <span class="text-slate-500">합계: </span>
+      <span class="font-semibold">{{ (preview | sum(attribute='supply'))|money }}</span> 원 (공급가액) ·
+      <span class="font-semibold">{{ (preview | sum(attribute='vat'))|money }}</span> 원 (부가세) ·
+      <span class="font-bold text-purple-700">{{ (preview | sum(attribute='total'))|money }}</span> 원 (합계)
+    </div>
+  </div>
+  <div class="overflow-x-auto max-h-96 overflow-y-auto">
+    <table class="table">
+      <thead class="sticky top-0">
+        <tr>
+          <th class="w-12">#</th><th>일자</th><th>거래처</th><th>제품코드</th><th>품명</th>
+          <th>유형</th><th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th><th>결제</th><th>비고</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in preview %}
+        <tr>
+          <td class="text-slate-400 text-xs">{{ r.row_no }}</td>
+          <td class="whitespace-nowrap">{{ r.txn_date }}</td>
+          <td class="font-medium">{{ r.party_name }}</td>
+          <td>{% if r.product_code %}<span class="badge badge-purple">{{ r.product_code }}</span>{% endif %}</td>
+          <td class="text-xs text-slate-600">{{ r.item_raw }}</td>
+          <td class="text-xs">{{ r.sale_type }}</td>
+          <td class="num">{{ r.supply|money }}</td>
+          <td class="num text-slate-500">{{ r.vat|money }}</td>
+          <td class="num font-semibold">{{ r.total|money }}</td>
+          <td class="text-xs">{{ r.payment_method }}</td>
+          <td class="text-xs text-slate-500">{{ r.note }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if not errors %}
+<form method="post" action="/sales/import-csv/commit" class="flex gap-2">
+  <input type="hidden" name="payload" value='{{ encoded | e }}'>
+  <button class="btn btn-accent text-lg px-8" onclick="return confirm('{{ preview|length }}건을 적용합니다. 진행하시겠습니까?')">
+    ✓ 적용 ({{ preview|length }}건)
+  </button>
+  <a href="/sales/import-csv" class="btn btn-secondary">취소·다시 선택</a>
+</form>
+{% else %}
+<div class="card bg-amber-50 border border-amber-200">
+  <p class="text-sm text-amber-800">오류를 해결한 뒤 다시 업로드해 주세요. 일부 행만 등록하는 기능은 추후 추가.</p>
+  <a href="/sales/import-csv" class="btn btn-secondary mt-2">다시 선택</a>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

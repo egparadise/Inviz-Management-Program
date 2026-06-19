@@ -1,0 +1,67 @@
+# 인비즈 경영관리 — 인터넷 배포 (앱 + Caddy 자동 HTTPS + Ollama LLM)
+# 사용법:
+#   1) .env 작성 (.env.example 참고)
+#   2) 데이터 패치 적용:  python apply_data_patch.py --docker   (app.db·설정·벡터 등)
+#   3) docker compose up -d --build
+#   4) LLM 모델 받기:      ./pull_models.sh   (또는 DEPLOY.md 참고)
+services:
+  app:
+    build: .
+    image: inviz-app:latest
+    container_name: inviz-app
+    restart: unless-stopped
+    environment:
+      INVIZ_PASSWORD: ${INVIZ_PASSWORD:?.env에 강력한 비밀번호를 설정하세요}
+      INVIZ_SECRET: ${INVIZ_SECRET:?.env에 INVIZ_SECRET(64 hex)을 설정하세요}
+      INVIZ_PORT: "8000"
+      INVIZ_PUBLIC: "1"                       # 공개 배포 보안 모드(서버 폴더탐색 비활성)
+      INVIZ_DB_PATH: /app/data/app.db         # DB는 볼륨에 영속화
+      INVIZ_VECTOR_PATH: /app/data/vector_store  # FAISS 벡터 인덱스(영속)
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}  # 로컬 LLM 접속
+      TZ: Asia/Seoul
+    volumes:
+      - ./data:/app/data                                  # app.db·vector_store (영속)
+      - ./data/report_templates:/app/report_templates     # 업로드 양식
+      - ./data/report_snapshots:/app/report_snapshots     # 보고서 저장본
+      - ./data/db_backup:/app/db_backup                   # DB 백업
+      - ./data/doc_uploads:/app/doc_uploads               # 서류 업로드
+    expose:
+      - "8000"
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: inviz-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama           # 받은 LLM 모델 영속 (llama3.1 / bge-m3 등)
+    # GPU 사용 시 아래 주석 해제 (NVIDIA Container Toolkit 필요)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  caddy:
+    image: caddy:2
+    container_name: inviz-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?.env에 도메인(예 inviz.example.com) 또는 :80 을 설정하세요}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
+  ollama_models:

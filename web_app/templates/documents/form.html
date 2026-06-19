@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}서류 수정{% else %}서류 신규{% endif %} — 인비즈{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4" style="color: var(--inviz-purple);">{% if row %}서류 수정{% else %}서류 신규 등록{% endif %}</h1>
+
+<form method="post" action="{% if row %}/documents/{{ row.id }}{% else %}/documents{% endif %}" enctype="multipart/form-data" class="card max-w-3xl">
+  <div class="grid grid-cols-2 gap-4">
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">제목 *</label>
+      <input type="text" name="name" class="input" required value="{{ row.name if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">카테고리 *</label>
+      {% set curcat = row.category if row else (preset_category or 'company') %}
+      <select name="category" class="select">
+        {% for c in categories %}<option value="{{ c.key }}" {% if curcat == c.key %}selected{% endif %}>{{ c.icon }} {{ c.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">종류</label>
+      <input type="text" name="doc_type" class="input" list="type-list" value="{{ row.doc_type if row else '' }}">
+      <datalist id="type-list">
+        {% for t in types %}<option value="{{ t }}">{% endfor %}
+        <option value="사업자등록증"><option value="법인등기"><option value="법인인감"><option value="특허">
+        <option value="공증"><option value="납세증명"><option value="부가세증명"><option value="인증서">
+        <option value="원천징수영수증"><option value="수출실적증명"><option value="계약서"><option value="협약서">
+        <option value="기타">
+      </datalist>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">발급기관</label>
+      <input type="text" name="issuer" class="input" value="{{ row.issuer if row else '' }}" placeholder="국세청, 특허청 등">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">등록번호/문서번호</label>
+      <input type="text" name="doc_no" class="input" value="{{ row.doc_no if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">담당자</label>
+      <input type="text" name="owner" class="input" value="{{ row.owner if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">발급일 / 최초 등록일</label>
+      <input type="date" name="issue_date" class="input" value="{{ row.issue_date|date if row and row.issue_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">만료일</label>
+      <input type="date" name="expiry_date" class="input" value="{{ row.expiry_date|date if row and row.expiry_date else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">갱신 주기 (개월)</label>
+      <input type="number" name="renewal_cycle_months" class="input" value="{{ row.renewal_cycle_months if row and row.renewal_cycle_months else 0 }}" placeholder="예: 12">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">상태</label>
+      <select name="status" class="select">
+        {% set s = row.status if row else 'active' %}
+        <option value="active" {% if s == 'active' %}selected{% endif %}>활성</option>
+        <option value="expired" {% if s == 'expired' %}selected{% endif %}>만료</option>
+        <option value="superseded" {% if s == 'superseded' %}selected{% endif %}>대체됨</option>
+      </select>
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">태그 (콤마 구분)</label>
+      <input type="text" name="tags" class="input" value="{{ row.tags if row else '' }}" placeholder="법인,세무,긴급">
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">비고</label>
+      <textarea name="note" class="textarea" rows="3">{{ row.note if row else '' }}</textarea>
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">📎 파일 첨부 <span class="text-xs text-slate-400">(PDF·이미지·문서 — 선택)</span></label>
+      <input type="file" name="upload" class="input" accept=".pdf,.jpg,.jpeg,.png,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.pptx">
+      {% if row and row.file_path %}<div class="text-xs text-slate-400 mt-1">새 파일을 올리면 기존 첨부가 교체됩니다.</div>{% endif %}
+    </div>
+    {% if row and row.file_path %}
+    <div class="col-span-2 p-3 bg-purple-50 rounded">
+      <div class="text-xs text-slate-500 mb-1">첨부 파일 (자동 스캔)</div>
+      <div class="text-sm font-medium">{{ row.file_name }}</div>
+      <div class="text-xs text-slate-500 mt-1">{{ row.rel_path }}</div>
+      <div class="flex gap-2 mt-2">
+        <a href="/documents/{{ row.id }}/view" target="_blank" class="text-purple-700 text-sm font-semibold">📄 보기</a>
+        <a href="/documents/{{ row.id }}/download" class="text-blue-600 text-sm">⬇️ 다운로드</a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="flex gap-2 mt-6">
+    <button class="btn btn-primary">{% if row %}수정 저장{% else %}등록{% endif %}</button>
+    <a href="/documents" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}매출 수정{% else %}매출 신규{% endif %} — 인비즈{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4 text-slate-800">{% if row %}매출 수정{% else %}매출 신규 등록{% endif %}</h1>
+<form method="post" action="{% if row %}/sales/{{ row.id }}{% else %}/sales{% endif %}" class="card max-w-3xl">
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="text-sm font-medium text-slate-700">전표일자 *</label>
+      <input type="date" name="txn_date" class="input" required value="{{ row.txn_date|date if row else today|date }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">매출유형</label>
+      <select name="sale_type" class="select">
+        {% set st = row.sale_type if row else '기타' %}
+        {% for t in ['정기', '신규', '일회성', '기타'] %}<option value="{{ t }}" {% if st == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">거래처명 *</label>
+      <input type="text" name="party_name" class="input" required list="party-list" value="{{ row.party_name if row else '' }}">
+      <datalist id="party-list">
+        {% for p in parties %}<option value="{{ p.name }}" data-code="{{ p.code }}">{% endfor %}
+      </datalist>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">거래처코드</label>
+      <input type="text" name="party_code" class="input" placeholder="C0001" value="{{ row.party_code if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">제품</label>
+      <select name="product_code" class="select">
+        <option value="">자동 매핑</option>
+        {% for p in products %}<option value="{{ p.code }}" {% if row and row.product_code == p.code %}selected{% endif %}>{{ p.code }} - {{ p.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">품명 (원본)</label>
+      <input type="text" name="item_raw" class="input" value="{{ row.item_raw if row else '' }}" placeholder="품명을 입력하면 제품 자동 매핑">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">공급가액 *</label>
+      <input type="number" name="supply" class="input num" required step="1" value="{{ row.supply|round|int if row else 0 }}" id="supply" oninput="updateTotal()">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">부가세</label>
+      <input type="number" name="vat" class="input num" step="1" value="{{ row.vat|round|int if row else 0 }}" id="vat" oninput="updateTotal()">
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">합계 (자동)</label>
+      <input type="text" id="total_display" class="input num bg-slate-100" readonly value="{{ row.total|money if row else '0' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">결제수단</label>
+      <input type="text" name="payment_method" class="input" value="{{ row.payment_method if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">비고</label>
+      <input type="text" name="note" class="input" value="{{ row.note if row else '' }}">
+    </div>
+  </div>
+  <div class="flex gap-2 mt-6">
+    <button type="submit" class="btn btn-primary">{% if row %}수정{% else %}등록{% endif %}</button>
+    <a href="/sales" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+<script>
+function updateTotal() {
+  const s = parseFloat(document.getElementById('supply').value) || 0;
+  const v = parseFloat(document.getElementById('vat').value) || 0;
+  document.getElementById('total_display').value = new Intl.NumberFormat('ko-KR').format(s + v);
+}
+// 거래처명 입력 시 코드 자동 채우기
+document.querySelector('input[name=party_name]').addEventListener('change', function(e) {
+  const opt = document.querySelector(`#party-list option[value="${e.target.value}"]`);
+  if (opt) document.querySelector('input[name=party_code]').value = opt.dataset.code;
+});
+</script>
+{% endblock %}

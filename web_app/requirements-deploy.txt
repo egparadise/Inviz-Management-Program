@@ -1,0 +1,13 @@
+# 인비즈 경영관리 — 배포(클라우드/도커)용 의존성
+# 핵심 웹앱만 (Ollama/LangChain/FAISS 등 로컬 AI는 제외 — 클라우드에서는 상용 AI API 사용)
+fastapi==0.136.3
+uvicorn[standard]==0.40.0
+sqlalchemy==2.0.50
+jinja2==3.1.6
+python-multipart==0.0.20
+itsdangerous==2.2.0
+openpyxl==3.1.5
+reportlab>=4.0,<5
+pypdf>=4.0
+pdfplumber>=0.11
+pandas>=2.2

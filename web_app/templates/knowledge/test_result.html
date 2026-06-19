@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}RAG 검색 결과 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">RAG 검색 결과</h1>
+  <a href="/knowledge" class="btn btn-secondary">← 지식베이스</a>
+</div>
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <div class="text-xs text-slate-500 mb-1">검색어</div>
+  <div class="text-lg font-bold">{{ query }}</div>
+  <div class="text-xs text-slate-500 mt-2">총 {{ hits|length }}건 검색됨 (LLM 호출 없이 임베딩 유사도만 비교)</div>
+</div>
+
+<div class="space-y-3">
+  {% for h in hits %}
+  <div class="card" style="border-left: 4px solid {% if h.score >= 0.7 %}#10B981{% elif h.score >= 0.5 %}var(--inviz-orange){% else %}#94A3B8{% endif %};">
+    <div class="flex items-start justify-between mb-2">
+      <div class="flex-1">
+        <div class="flex items-center gap-2 mb-1">
+          {% if h.source == 'conversation' %}
+            <span class="badge badge-orange">학습된 대화</span>
+          {% else %}
+            <span class="badge badge-purple">{{ h.metadata.get('source_type', 'knowledge') }}</span>
+          {% endif %}
+          <span class="font-semibold">{{ h.metadata.get('title', '제목 없음') }}</span>
+        </div>
+        {% if h.metadata.get('page_url') %}
+        <a href="{{ h.metadata.page_url }}" class="text-xs text-purple-700">→ {{ h.metadata.page_url }}</a>
+        {% endif %}
+      </div>
+      <div class="text-right">
+        <div class="text-xs text-slate-500">유사도</div>
+        <div class="text-lg font-bold" style="color: {% if h.score >= 0.7 %}#059669{% elif h.score >= 0.5 %}#D97706{% else %}#64748B{% endif %};">
+          {{ "%.3f"|format(h.score) }}
+        </div>
+      </div>
+    </div>
+    <div class="text-sm text-slate-700 whitespace-pre-wrap border-t border-slate-100 pt-2 mt-2">{{ h.content }}</div>
+  </div>
+  {% endfor %}
+
+  {% if not hits %}
+  <div class="card text-center text-slate-500">
+    검색 결과 없음. 다른 키워드로 시도해 보세요.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

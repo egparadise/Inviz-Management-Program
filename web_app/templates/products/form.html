@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}제품 수정{% else %}제품 신규{% endif %}{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-4 text-slate-800">{% if row %}제품 수정{% else %}제품 신규 등록{% endif %}</h1>
+<form method="post" action="{% if row %}/products/{{ row.code }}{% else %}/products{% endif %}" class="card max-w-xl">
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="text-sm font-medium text-slate-700">코드 *</label>
+      {% if row %}<input type="text" class="input bg-slate-100" readonly value="{{ row.code }}">
+      {% else %}<input type="text" name="code" class="input" required placeholder="P010">{% endif %}
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">제품명 *</label>
+      <input type="text" name="name" class="input" required value="{{ row.name if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">카테고리</label>
+      <select name="category" class="select">
+        {% set cat = row.category if row else '' %}
+        <option value="">선택</option>
+        {% for c in ['상품', '제품', '용역', '기타'] %}<option value="{{ c }}" {% if cat == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">그룹</label>
+      <input type="text" name="group" class="input" value="{{ row.group if row else '' }}">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">단가기준</label>
+      <input type="text" name="unit_basis" class="input" value="{{ row.unit_basis if row else '' }}" placeholder="건별/대당/월·연">
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">비고</label>
+      <textarea name="note" class="textarea" rows="2">{{ row.note if row else '' }}</textarea>
+    </div>
+  </div>
+  <div class="flex gap-2 mt-6">
+    <button class="btn btn-primary">{% if row %}수정{% else %}등록{% endif %}</button>
+    <a href="/products" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+{% endblock %}

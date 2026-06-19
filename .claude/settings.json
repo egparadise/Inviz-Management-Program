@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cd web_app:*)",
+      "Bash(python *)",
+      "Bash(pip install:*)",
+      "Bash(sqlite3 web_app/app.db:*)",
+      "Bash(ls:*)",
+      "Bash(taskkill *python*)",
+      "Bash(ollama *)",
+      "Bash(curl -s *)",
+      "Bash(start.bat)",
+      "Bash(safe_sync.bat)",
+      "Bash(sync.bat)",
+      "Bash(register_safe_sync_task.bat)",
+      "Read(./**)",
+      "Read(C:/Users/scpar/OneDrive - Inviz/5.Inviz_Corporation/14.경영정보/**)",
+      "Glob(**)",
+      "Grep(**)",
+      "Edit(web_app/**)",
+      "Write(web_app/**)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Edit(docs/**)",
+      "Write(docs/**)"
+    ],
+    "deny": [
+      "Bash(rm -rf web_app/app.db)",
+      "Bash(rm -rf web_app/db_backup)",
+      "Bash(git push --force *)",
+      "Bash(taskkill *F * IM:*)",
+      "Edit(web_app/app.db)",
+      "Write(web_app/app.db)"
+    ],
+    "ask": [
+      "Bash(*delete*)",
+      "Bash(*drop table*)",
+      "Bash(rm *backup*)"
+    ]
+  },
+  "env": {
+    "INVIZ_PASSWORD": "changeme",
+    "INVIZ_SECRET": "change-this-to-a-random-64-hex-string",
+    "PYTHONIOENCODING": "utf-8"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[hook] 파일 편집 전 — DB 백업 필요 시 safe_sync.bat 먼저 실행 권장\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:/Users/inviz/OneDrive - Inviz (1)/5.Inviz_Corporation/14.경영정보/.claude/Inviz-Management-Program-main/.claude/hooks/precommit_guard.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:/Users/inviz/OneDrive - Inviz (1)/5.Inviz_Corporation/14.경영정보/.claude/Inviz-Management-Program-main/.claude/hooks/postedit_hint.py\""
+          }
+        ]
+      }
+    ]
+  },
+  "model": "claude-opus-4-7",
+  "outputStyle": "default"
+}

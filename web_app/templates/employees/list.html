@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}직원 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold text-slate-800">직원 마스터</h1>
+  <a href="/employees/new" class="btn btn-primary">+ 신규 직원</a>
+</div>
+
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-4 gap-3">
+    <input type="text" name="q" value="{{ filter.q }}" class="input" placeholder="이름·사번 검색">
+    <select name="department" class="select">
+      <option value="">부서 전체</option>
+      {% for d in departments %}<option value="{{ d }}" {% if filter.department == d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+    </select>
+    <select name="active" class="select">
+      <option value="">상태 전체</option>
+      <option value="재직" {% if filter.active == '재직' %}selected{% endif %}>재직</option>
+      <option value="퇴직" {% if filter.active == '퇴직' %}selected{% endif %}>퇴직</option>
+    </select>
+    <div class="flex gap-2"><button class="btn btn-primary flex-1">필터</button><a href="/employees" class="btn btn-secondary">초기화</a></div>
+  </form>
+</div>
+
+{# 정렬 가능한 머리글 매크로 — 클릭 시 오름/내림 토글, 필터 유지 #}
+{% macro sorth(key, label, numeric=false) %}
+  {% set newdir = 'desc' if (sort == key and dir == 'asc') else 'asc' %}
+  <th {% if numeric %}class="num"{% endif %} style="cursor:pointer; white-space:nowrap;">
+    <a href="?sort={{ key }}&dir={{ newdir }}&q={{ filter.q|urlencode }}&active={{ filter.active|urlencode }}&department={{ filter.department|urlencode }}"
+       class="hover:underline" title="{{ label }} 정렬">
+      {{ label }}<span style="color: var(--inviz-orange);">{% if sort == key %} {{ '▲' if dir == 'asc' else '▼' }}{% else %} <span style="color:#CBD5E1;">↕</span>{% endif %}</span>
+    </a>
+  </th>
+{% endmacro %}
+
+<div class="card">
+  <div class="flex items-center justify-between mb-3">
+    <div class="text-sm text-slate-600">총 <span class="font-semibold">{{ rows|length }}</span>명</div>
+    <div class="text-xs text-slate-400">↕ 머리글을 클릭하면 정렬됩니다 (한 번 더 클릭 = 역순)</div>
+  </div>
+  <table class="table">
+    <thead><tr>
+      {{ sorth('code', '사번') }}
+      {{ sorth('name', '성명') }}
+      {{ sorth('department', '부서') }}
+      {{ sorth('rank', '직급') }}
+      {{ sorth('employment_type', '고용형태') }}
+      {{ sorth('hire_date', '입사일') }}
+      {{ sorth('resign_date', '퇴사일') }}
+      {{ sorth('active', '상태') }}
+      {{ sorth('base_salary', '기준임금', numeric=true) }}
+      {{ sorth('pension_enrolled', '퇴직연금') }}
+      <th></th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="font-mono text-xs">{{ r.code }}</td>
+        <td class="font-medium">{{ r.name }}</td>
+        <td>{{ r.department or '' }}</td>
+        <td>{{ r.rank or '' }}</td>
+        <td class="text-xs">{{ r.employment_type or '' }}</td>
+        <td class="text-xs">{{ r.hire_date|date }}</td>
+        <td class="text-xs">{{ r.resign_date|date }}</td>
+        <td>{% if r.active == '재직' %}<span class="badge badge-green">재직</span>{% else %}<span class="badge badge-gray">{{ r.active }}</span>{% endif %}</td>
+        <td class="num text-xs">{{ r.base_salary|money if r.base_salary else '' }}</td>
+        <td>{% if r.pension_enrolled == 'Y' %}<span class="badge badge-blue">가입</span>{% endif %}</td>
+        <td>
+          <a href="/employees/{{ r.code }}/edit" class="text-blue-600 text-xs">수정</a>
+          <form method="post" action="/employees/{{ r.code }}/delete" class="inline" onsubmit="return confirm('삭제?')">
+            <button class="text-red-600 text-xs ml-2">삭제</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

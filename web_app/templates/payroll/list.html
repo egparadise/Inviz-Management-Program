@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}급여 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold text-slate-800">급여 대장</h1>
+  <a href="/payroll/new{% if filter.year %}?year={{ filter.year }}&month={{ filter.month or '' }}{% endif %}" class="btn btn-primary">➕ 급여 등록</a>
+</div>
+
+<div class="card mb-4">
+  <form method="get" class="grid grid-cols-4 gap-3">
+    <div>
+      <label class="text-xs text-slate-500">연도</label>
+      <select name="year" class="select">
+        <option value="">전체</option>
+        {% for y in years %}<option value="{{ y }}" {% if filter.year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">월</label>
+      <select name="month" class="select">
+        <option value="">전체</option>
+        {% for m in range(1, 13) %}<option value="{{ m }}" {% if filter.month == m %}selected{% endif %}>{{ m }}월</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-xs text-slate-500">성명</label>
+      <input type="text" name="name" value="{{ filter.name }}" class="input">
+    </div>
+    <div class="flex items-end gap-2"><button class="btn btn-primary flex-1">필터</button><a href="/payroll" class="btn btn-secondary">초기화</a></div>
+  </form>
+</div>
+
+{% set q = request.query_params %}
+{% if q.get('bulk') %}<div class="card mb-3 bg-green-50 border border-green-300 text-sm text-green-700">📧 일괄 발송 결과 — {{ q.get('bulk') }}</div>{% endif %}
+{% if q.get('sent') %}<div class="card mb-3 bg-green-50 border border-green-300 text-sm text-green-700">✅ 급여명세서 이메일을 발송했습니다.</div>{% endif %}
+{% if q.get('email_saved') %}<div class="card mb-3 bg-green-50 border border-green-300 text-sm text-green-700">✅ 이메일이 저장되었습니다.</div>{% endif %}
+{% if q.get('mailerr') %}<div class="card mb-3 bg-red-50 border border-red-300 text-sm text-red-700">⚠️ {{ q.get('mailerr') }}</div>{% endif %}
+
+<!-- 급여명세서 이메일 발송 -->
+<div class="card mb-4" style="border-left:4px solid var(--inviz-purple);">
+  <div class="flex items-center justify-between flex-wrap gap-2">
+    <div>
+      <h3 class="font-semibold" style="color:var(--inviz-purple);">📧 급여명세서 이메일 발송</h3>
+      <p class="text-xs text-slate-500 mt-1">아래 표에서 직원별 이메일을 등록(💾)하고, 선택한 귀속(연·월)의 급여명세서를 발송합니다.
+      {% if not mail_ready %}<span class="text-amber-600">— 먼저 <a href="/settings/integrations" class="underline">설정 ▸ 이메일(SMTP)</a>을 등록하세요.</span>{% endif %}</p>
+    </div>
+    {% if filter.year and filter.month %}
+    <form method="post" action="/payroll/email-all" onsubmit="return confirm('{{ filter.year }}년 {{ filter.month }}월 급여명세서를 이메일 등록된 전 직원에게 발송할까요?')">
+      <input type="hidden" name="year" value="{{ filter.year }}"><input type="hidden" name="month" value="{{ filter.month }}">
+      <button class="btn btn-primary" {% if not mail_ready %}disabled{% endif %}>📧 {{ filter.year }}.{{ filter.month }} 전체 발송</button>
+    </form>
+    {% else %}<span class="text-xs text-slate-400">전체 발송하려면 위에서 연도·월을 선택하세요.</span>{% endif %}
+  </div>
+</div>
+
+{% if filter.year %}
+<div class="card mb-4">
+  <h3 class="font-semibold text-slate-700 mb-3">{{ filter.year }} 월별 인건비</h3>
+  <table class="table">
+    <thead><tr><th>월</th><th class="num">인원</th><th class="num">지급합계</th><th class="num">실지급합계</th></tr></thead>
+    <tbody>
+      {% set tots = namespace(c=0, g=0, n=0) %}
+      {% for m in monthly %}
+      <tr>
+        <td>{{ m.month }}월</td>
+        <td class="num">{{ m.count }}</td>
+        <td class="num">{{ m.gross|money }}</td>
+        <td class="num">{{ m.net|money }}</td>
+      </tr>
+      {% set tots.c = tots.c + m.count %}{% set tots.g = tots.g + m.gross %}{% set tots.n = tots.n + m.net %}
+      {% endfor %}
+      <tr class="font-bold bg-slate-50"><td>합계</td><td class="num">{{ tots.c }}</td><td class="num">{{ tots.g|money }}</td><td class="num">{{ tots.n|money }}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="flex justify-between mb-3">
+    <div class="text-sm text-slate-600">
+      총 <span class="font-semibold">{{ total_count|money }}</span>건 · 지급합계 <span class="font-bold">{{ total_gross|money }}</span> · 실지급 <span class="font-bold">{{ total_net|money }}</span>
+    </div>
+    <div class="text-xs text-slate-500">{{ page }}/{{ total_pages }}</div>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="table">
+      <thead><tr><th>귀속</th><th>사번</th><th>성명</th><th>부서</th><th class="num">기본급</th><th class="num">제수당</th><th class="num">지급합계</th><th class="num">공제합계</th><th class="num">실지급</th><th>이메일 · 생년월일 · 발송</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="text-xs">{{ r.period }}</td>
+          <td class="font-mono text-xs">{{ r.employee_code or '' }}</td>
+          <td class="font-medium">{{ r.employee_name }}</td>
+          <td class="text-xs">{{ r.department or '' }}</td>
+          <td class="num">{{ r.basic|money }}</td>
+          <td class="num text-slate-500">{{ ((r.meal or 0) + (r.car or 0) + (r.research or 0) + (r.other_allow or 0) + (r.annual_leave or 0) + (r.overtime or 0) + (r.night or 0) + (r.bonus or 0))|money }}</td>
+          <td class="num font-semibold">{{ r.gross_pay|money }}</td>
+          <td class="num text-slate-500">{{ r.total_deduction|money }}</td>
+          <td class="num font-semibold">{{ r.net_pay|money }}</td>
+          <td class="whitespace-nowrap">
+            <form method="post" action="/payroll/set-email" class="inline-flex items-center gap-1">
+              <input type="hidden" name="code" value="{{ r.employee_code or '' }}">
+              <input type="hidden" name="name" value="{{ r.employee_name }}">
+              <input type="hidden" name="back" value="/payroll?year={{ filter.year or '' }}&month={{ filter.month or '' }}">
+              <input name="email" value="{{ emails.get(r.id,'') }}" placeholder="이메일" class="input" style="width:140px;padding:3px 6px;font-size:12px;">
+              <input name="birth_date" type="date" value="{{ births.get(r.id,'') }}" title="생년월일 (PDF 열기 비밀번호 = 앞 6자리)" class="input" style="width:130px;padding:3px 6px;font-size:12px;">
+              <button class="text-purple-700 text-xs" title="이메일·생년월일 저장">💾</button>
+            </form>
+            <a href="/payroll/payslip/{{ r.id }}.pdf" target="_blank" class="text-slate-600 text-xs ml-1" title="명세서 PDF 미리보기">📄</a>
+            <a href="/payroll/{{ r.id }}/edit" class="text-purple-700 text-xs ml-1" title="급여 항목 수정">✏️ 수정</a>
+            <form method="post" action="/payroll/email-one/{{ r.id }}" class="inline">
+              {% if emails.get(r.id) and mail_ready %}
+              <button class="text-green-700 text-xs" title="명세서 발송">📧 발송</button>
+              {% else %}
+              <button class="text-slate-300 text-xs" disabled title="이메일 미등록 또는 SMTP 미설정">📧 발송</button>
+              {% endif %}
+              {% if not births.get(r.id) %}<span class="text-amber-500 text-xs ml-1" title="생년월일 미등록 — PDF 비밀번호 미설정">🔓</span>{% endif %}
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="flex justify-center gap-2 mt-4">
+    {% set qs = '&year=' ~ (filter.year or '') ~ '&month=' ~ (filter.month or '') ~ '&name=' ~ filter.name %}
+    {% if page > 1 %}<a href="?page={{ page-1 }}{{ qs }}" class="btn btn-secondary">이전</a>{% endif %}
+    <span class="px-3 py-2 text-sm">{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}<a href="?page={{ page+1 }}{{ qs }}" class="btn btn-secondary">다음</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}급여 수정{% else %}급여 등록{% endif %} — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">{% if row %}✏️ 급여 수정{% else %}➕ 급여 등록{% endif %}</h1>
+  <a href="/payroll{% if year %}?year={{ year }}&month={{ month }}{% endif %}" class="btn btn-secondary">← 급여 대장</a>
+</div>
+
+{% set q = request.query_params %}
+{% if q.get('dup') %}<div class="card mb-3 bg-amber-50 border border-amber-300 text-sm text-amber-800">⚠️ 해당 직원의 같은 귀속(연·월) 급여가 이미 있어 <b>수정</b> 화면으로 이동했습니다.</div>{% endif %}
+{% if q.get('err') %}<div class="card mb-3 bg-red-50 border border-red-300 text-sm text-red-700">⚠️ {{ q.get('err') }}</div>{% endif %}
+
+<form method="post" action="{% if row %}/payroll/{{ row.id }}{% else %}/payroll{% endif %}" class="card max-w-4xl">
+  <input type="hidden" id="pension_enrolled" value="1">
+
+  <!-- 대상 -->
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+    <div class="md:col-span-2">
+      <label class="text-sm font-medium text-slate-700">직원 *</label>
+      <select name="employee_code" id="employee_code" class="select" required onchange="onEmp()">
+        <option value="">직원 선택</option>
+        {% for e in employees %}<option value="{{ e.code }}" {% if sel_code == e.code %}selected{% endif %}>{{ e.name }} ({{ e.department or '-' }}{% if e.rank %} · {{ e.rank }}{% endif %})</option>{% endfor %}
+      </select>
+      <div class="text-xs text-slate-400 mt-1" id="emp_hint">직원을 선택하면 등록된 기본급으로 자동 채워집니다.</div>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">귀속 연도 *</label>
+      <select name="year" class="select" required>
+        {% for y in years %}<option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">귀속 월 *</label>
+      <select name="month" class="select" required>
+        {% for m in range(1,13) %}<option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ m }}월</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <!-- 적용 요율 (수동 수정 + AI 검색) -->
+  <div class="border rounded-lg p-3 mb-3" style="border-color:#DDD6FE; background:#FAF5FF;">
+    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+      <span class="text-sm font-semibold" style="color:var(--inviz-purple);">⚙ 적용 요율 <span class="text-xs font-normal text-slate-400">(직접 수정하거나 AI로 검색)</span></span>
+      <div class="flex gap-2">
+        <button type="button" id="aiBtn" class="btn btn-secondary text-xs" onclick="aiRates()">🤖 AI로 요율 검색</button>
+        <button type="button" class="btn btn-secondary text-xs" onclick="saveRates()">💾 기본값으로 저장</button>
+        <button type="button" class="btn btn-primary text-xs" onclick="autoCalc()">🧮 자동계산</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+      <label class="block">국민연금 %<input id="r_pension" type="number" step="0.001" value="{{ rates.pension }}" class="input num mt-1" oninput="autoCalc()"></label>
+      <label class="block">건강보험 %<input id="r_health" type="number" step="0.001" value="{{ rates.health }}" class="input num mt-1" oninput="autoCalc()"></label>
+      <label class="block">장기요양 %<span class="text-slate-400">(건보료의)</span><input id="r_longterm" type="number" step="0.001" value="{{ rates.longterm }}" class="input num mt-1" oninput="autoCalc()"></label>
+      <label class="block">고용보험 %<input id="r_employment" type="number" step="0.001" value="{{ rates.employment }}" class="input num mt-1" oninput="autoCalc()"></label>
+      <label class="block">지방소득세 %<span class="text-slate-400">(소득세의)</span><input id="r_local_tax" type="number" step="0.1" value="{{ rates.local_tax }}" class="input num mt-1" oninput="autoCalc()"></label>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs mt-2">
+      <label class="block">고용보험(회사) %<input id="r_emp_employment" type="number" step="0.001" value="{{ rates.emp_employment }}" class="input num mt-1" oninput="autoCalc()"></label>
+      <label class="block">산재보험(회사) %<input id="r_accident" type="number" step="0.001" value="{{ rates.accident }}" class="input num mt-1" oninput="autoCalc()"></label>
+      <label class="block">국민연금 상한(원)<input id="r_pension_cap" type="number" step="1000" value="{{ rates.pension_cap|int }}" class="input num mt-1" oninput="autoCalc()"></label>
+      <label class="block">국민연금 하한(원)<input id="r_pension_floor" type="number" step="1000" value="{{ rates.pension_floor|int }}" class="input num mt-1" oninput="autoCalc()"></label>
+      <label class="block">식대 비과세(원)<input id="r_meal_taxfree" type="number" step="10000" value="{{ rates.meal_taxfree|int }}" class="input num mt-1" oninput="autoCalc()"></label>
+    </div>
+    <div id="rates_note" class="text-xs text-slate-400 mt-2">소득세는 간이세액표 기준이라 표 안에서 직접 입력합니다. 위 요율을 바꾸면 즉시 자동계산에 반영됩니다.</div>
+  </div>
+
+  <!-- 연봉 입력 → 월 기본급(÷12) -->
+  <div class="flex items-center gap-2 mb-3 p-2 rounded flex-wrap" style="background:#F5F3FF;">
+    <span class="text-sm font-medium text-slate-600">연봉으로 입력 →</span>
+    <input type="number" step="1" id="annual_input" class="input num" style="width:170px;" placeholder="연봉 금액">
+    <button type="button" class="btn btn-secondary text-sm" onclick="applyAnnual()">÷12 → 월 기본급 적용</button>
+    <span class="text-xs text-slate-400">연봉 입력 후 적용하면 <b>기본급 = 연봉 ÷ 12</b>로 설정되고 4대보험이 자동 계산됩니다.</span>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- 지급 -->
+    <div class="border rounded-lg p-3" style="border-color:#DDD6FE;">
+      <h3 class="font-semibold mb-2" style="color:var(--inviz-purple);">지급 항목</h3>
+      {% set pay_labels = [('basic','기본급'),('meal','식대(비과세)'),('car','차량유지'),('research','연구수당'),('other_allow','기타수당'),('annual_leave','연차수당'),('overtime','연장근로'),('night','야간근로'),('bonus','상여')] %}
+      {% for k,lbl in pay_labels %}
+      <div class="flex items-center justify-between gap-2 mb-1">
+        <label class="text-sm text-slate-600" style="width:110px;">{{ lbl }}</label>
+        <input type="number" step="1" name="{{ k }}" id="f_{{ k }}" value="{{ (row[k]|round|int) if row and row[k] else 0 }}" class="input num flex-1" oninput="autoCalc()">
+      </div>
+      {% endfor %}
+      <div class="flex items-center justify-between border-t mt-2 pt-2">
+        <span class="font-semibold">지급 액 계</span>
+        <span class="font-bold" style="color:var(--inviz-purple);"><span id="t_gross">0</span> 원</span>
+      </div>
+    </div>
+
+    <!-- 공제 -->
+    <div class="border rounded-lg p-3" style="border-color:#FECACA;">
+      <h3 class="font-semibold mb-2 text-red-700">공제 항목 <span class="text-xs font-normal text-slate-400">(요율 자동 · 수정 가능)</span></h3>
+      {% set ded_labels = [('pension','국민연금'),('health','건강보험'),('longterm','장기요양보험'),('employment','고용보험'),('income_tax','소득세'),('local_tax','지방소득세'),('other_deduction','기타공제')] %}
+      {% for k,lbl in ded_labels %}
+      <div class="flex items-center justify-between gap-2 mb-1">
+        <label class="text-sm text-slate-600" style="width:110px;">{{ lbl }}{% if k=='income_tax' %} <span class="text-xs text-amber-600" title="국세청 간이세액표 기준 — 직접 입력">✎</span>{% endif %}</label>
+        <input type="number" step="1" name="{{ k }}" id="f_{{ k }}" value="{{ (row[k]|round|int) if row and row[k] else 0 }}" class="input num flex-1"
+               {% if k=='income_tax' %}oninput="calcLocal()"{% else %}oninput="updateTotals()"{% endif %}>
+      </div>
+      {% endfor %}
+      <div class="flex items-center justify-between border-t mt-2 pt-2">
+        <span class="font-semibold">공제 액 계</span>
+        <span class="font-bold text-red-700"><span id="t_ded">0</span> 원</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 차인지급액 -->
+  <div class="flex items-center justify-end gap-3 mt-4 p-3 rounded-lg" style="background:#F5F3FF;">
+    <span class="font-semibold text-slate-700">차인지급액(실수령)</span>
+    <span class="text-2xl font-bold" style="color:var(--inviz-purple);"><span id="t_net">0</span> 원</span>
+  </div>
+
+  <!-- 회사 부담 (원천세 납부 + 4대보험 회사분) -->
+  <div class="border rounded-lg p-3 mt-4" style="border-color:#FBCFE8; background:#FDF2F8;">
+    <h3 class="font-semibold mb-2" style="color:#9D174D;">🏢 회사 부담 — 원천세 납부 + 4대보험 회사분</h3>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1 text-sm">
+      <div class="flex justify-between"><span class="text-slate-600">국민연금(회사)</span><b id="e_pension">0</b></div>
+      <div class="flex justify-between"><span class="text-slate-600">건강보험(회사)</span><b id="e_health">0</b></div>
+      <div class="flex justify-between"><span class="text-slate-600">장기요양(회사)</span><b id="e_longterm">0</b></div>
+      <div class="flex justify-between"><span class="text-slate-600">고용보험(회사)</span><b id="e_employment">0</b></div>
+      <div class="flex justify-between"><span class="text-slate-600">산재보험(회사)</span><b id="e_accident">0</b></div>
+      <div class="flex justify-between border-t pt-1"><span class="font-semibold text-pink-800">회사 4대보험 계</span><b id="e_total" class="text-pink-800">0</b></div>
+      <div class="flex justify-between border-t pt-1"><span class="font-semibold text-pink-800">원천세 납부(소득세+지방세)</span><b id="e_wht" class="text-pink-800">0</b></div>
+      <div class="flex justify-between border-t pt-1"><span class="font-semibold" style="color:#9D174D;">회사 총지출</span><b id="e_grand" style="color:#9D174D;">0</b></div>
+    </div>
+    <input type="hidden" name="employer_insurance" id="f_employer_total" value="{{ row.employer_insurance|round|int if row and row.employer_insurance else 0 }}">
+    <div class="text-xs text-slate-400 mt-2">회사 총지출 = 차인지급액(실수령) + 원천세 납부 + 회사 4대보험. 고용보험(회사)·산재 요율은 위 <b>적용 요율</b> 패널에서 조정합니다.</div>
+  </div>
+
+  <div class="mt-3">
+    <label class="text-sm font-medium text-slate-700">비고</label>
+    <input type="text" name="note" value="{{ row.note if row else '' }}" class="input" placeholder="(선택)">
+  </div>
+
+  <div class="flex gap-2 mt-5">
+    <button class="btn btn-primary px-8">{% if row %}수정 저장{% else %}등록{% endif %}</button>
+    <a href="/payroll" class="btn btn-secondary">취소</a>
+    <p class="text-xs text-slate-400 self-center ml-2">소득세는 국세청 <b>간이세액표</b> 기준이라 직접 입력/수정합니다. 나머지 4대보험은 요율로 자동계산됩니다.</p>
+  </div>
+</form>
+
+<script>
+const EMP = {{ emp_map_json|safe }};
+const R = {{ rates_json|safe }};
+const IS_EDIT = {{ 'true' if row else 'false' }};
+const PAY = ['basic','meal','car','research','other_allow','annual_leave','overtime','night','bonus'];
+const DED = ['pension','health','longterm','employment','income_tax','local_tax','other_deduction'];
+function won(n){ return (Math.round(n)||0).toLocaleString(); }
+function gv(id){ const el=document.getElementById(id); return el?(parseFloat((''+el.value).replace(/,/g,''))||0):0; }
+function sv(id,v){ const el=document.getElementById(id); if(el) el.value=Math.round(v)||0; }
+function round10(x){ return Math.floor(x/10)*10; }
+function grossSum(){ let s=0; PAY.forEach(k=>s+=gv('f_'+k)); return s; }
+function dedSum(){ let s=0; DED.forEach(k=>s+=gv('f_'+k)); return s; }
+function setT(id,v){ const el=document.getElementById(id); if(el) el.textContent=won(v); }
+function calcEmployer(){
+  const g=grossSum();
+  const base=Math.max(g-Math.min(gv('f_meal'),R_('meal_taxfree')),0);
+  const enrolled=document.getElementById('pension_enrolled').value==='1';
+  const penBase=Math.min(Math.max(base,R_('pension_floor')),R_('pension_cap'));
+  const ep=enrolled?round10(penBase*R_('pension')/100):0;
+  const eh=round10(base*R_('health')/100);
+  const el=round10(eh*R_('longterm')/100);
+  const ee=round10(base*R_('emp_employment')/100);
+  const ea=round10(base*R_('accident')/100);
+  const et=ep+eh+el+ee+ea;
+  setT('e_pension',ep); setT('e_health',eh); setT('e_longterm',el);
+  setT('e_employment',ee); setT('e_accident',ea); setT('e_total',et);
+  const hid=document.getElementById('f_employer_total'); if(hid) hid.value=et;
+  const wht=gv('f_income_tax')+gv('f_local_tax'); setT('e_wht',wht);
+  setT('e_grand', (grossSum()-dedSum())+wht+et);
+}
+function updateTotals(){ const g=grossSum(), d=dedSum();
+  document.getElementById('t_gross').textContent=won(g);
+  document.getElementById('t_ded').textContent=won(d);
+  document.getElementById('t_net').textContent=won(g-d);
+  calcEmployer(); }
+// 요율: 입력칸(r_*) 우선, 없으면 초기 R 사용
+function R_(k){ const el=document.getElementById('r_'+k); const v=el?parseFloat((''+el.value).replace(/,/g,'')):NaN; return isNaN(v)?R[k]:v; }
+function calcLocal(){ sv('f_local_tax', round10(gv('f_income_tax')*R_('local_tax')/100)); updateTotals(); }
+function autoCalc(){
+  const g=grossSum();
+  const taxfree=Math.min(gv('f_meal'), R_('meal_taxfree'));
+  const base=Math.max(g-taxfree,0);
+  const enrolled = document.getElementById('pension_enrolled').value==='1';
+  const penBase=Math.min(Math.max(base,R_('pension_floor')),R_('pension_cap'));
+  sv('f_pension', enrolled?round10(penBase*R_('pension')/100):0);
+  sv('f_health', round10(base*R_('health')/100));
+  sv('f_longterm', round10(gv('f_health')*R_('longterm')/100));
+  sv('f_employment', round10(base*R_('employment')/100));
+  sv('f_local_tax', round10(gv('f_income_tax')*R_('local_tax')/100));
+  updateTotals();
+}
+const RKEYS=['pension','health','longterm','employment','local_tax','pension_cap','pension_floor','meal_taxfree'];
+function aiRates(){
+  const btn=document.getElementById('aiBtn'), note=document.getElementById('rates_note');
+  const year=document.querySelector('[name=year]').value || '';
+  btn.disabled=true; btn.textContent='🤖 검색 중...'; note.textContent='AI가 요율을 검색 중입니다...';
+  fetch('/payroll/ai-rates',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'year='+encodeURIComponent(year)})
+    .then(r=>r.json()).then(d=>{
+      btn.disabled=false; btn.textContent='🤖 AI로 요율 검색';
+      if(!d.ok){ note.textContent='⚠️ AI 검색 실패: '+(d.error||''); return; }
+      RKEYS.forEach(k=>{ if(d.rates[k]!=null){ const el=document.getElementById('r_'+k); if(el) el.value=d.rates[k]; }});
+      note.innerHTML='🤖 '+(d.note||'AI 제안값 — 확인 후 사용하세요.');
+      autoCalc();
+    }).catch(e=>{ btn.disabled=false; btn.textContent='🤖 AI로 요율 검색'; note.textContent='⚠️ 오류: '+e; });
+}
+function saveRates(){
+  const note=document.getElementById('rates_note');
+  const body=RKEYS.map(k=>'pay_rate_'+k+'='+encodeURIComponent(document.getElementById('r_'+k).value)).join('&');
+  fetch('/payroll/save-rates',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
+    .then(r=>r.json()).then(d=>{ note.textContent=d.ok?'💾 기본 요율로 저장되었습니다 (이후 모든 급여 등록·설정 ▸ 급여 요율에 반영).':'저장 실패'; })
+    .catch(e=>{ note.textContent='⚠️ 저장 오류: '+e; });
+}
+function applyAnnual(){
+  const a=gv('annual_input');
+  if(a>0){ sv('f_basic', Math.round(a/12)); autoCalc(); }
+}
+function onEmp(){
+  const code=document.getElementById('employee_code').value;
+  const e=EMP[code];
+  document.getElementById('pension_enrolled').value = (e&&e.pension)?'1':'0';
+  const hint=document.getElementById('emp_hint');
+  if(e){
+    hint.textContent = (e.is_annual ? ('연봉 '+won(e.annual)+'원 ÷12 → 월 '+won(e.monthly)+'원')
+                                    : ('월 기본급 '+won(e.monthly)+'원 (연봉 환산 '+won(e.annual)+'원)'))
+                       + (e.pension?' · 국민연금 가입':' · 국민연금 미가입');
+    sv('f_basic', e.monthly);
+    if(!gv('f_meal')) sv('f_meal', R.meal_taxfree);
+    autoCalc();
+  } else { hint.textContent='직원을 선택하면 등록된 급여(연봉이면 ÷12)로 기본급이 채워집니다.'; }
+}
+// 초기화
+(function(){
+  const code=document.getElementById('employee_code').value;
+  if(EMP[code]) document.getElementById('pension_enrolled').value = EMP[code].pension?'1':'0';
+  if(IS_EDIT){ updateTotals(); }            // 수정: 저장값 유지(자동계산으로 덮어쓰지 않음)
+  else if(code && EMP[code]){                // 신규+직원 선택됨: 자동계산
+    if(!gv('f_basic')) sv('f_basic', EMP[code].monthly);
+    if(!gv('f_meal')) sv('f_meal', R.meal_taxfree);
+    autoCalc();
+  } else { updateTotals(); }
+})();
+</script>
+{% endblock %}

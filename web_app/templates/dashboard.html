@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}대시보드 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-1 text-slate-800">경영 대시보드</h1>
+<p class="text-sm text-slate-500 mb-6">{{ current_year }}년 기준</p>
+
+{% set cy = years_data[current_year] %}
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">매출 ({{ current_year }})</div>
+    <div class="text-xl font-bold text-slate-800 mt-1">{{ cy.sales|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#94A3B8">
+    <div class="text-xs text-slate-500">매입</div>
+    <div class="text-xl font-bold text-slate-800 mt-1">{{ cy.purchases|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#10B981">
+    <div class="text-xs text-slate-500">매출이익</div>
+    <div class="text-xl font-bold text-green-700 mt-1">{{ cy.gross|money }}</div>
+    <div class="text-xs text-slate-400 mt-1">{{ cy.margin|pct }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#F59E0B">
+    <div class="text-xs text-slate-500">급여</div>
+    <div class="text-xl font-bold text-slate-800 mt-1">{{ cy.payroll|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:#F59E0B">
+    <div class="text-xs text-slate-500">비용</div>
+    <div class="text-xl font-bold text-slate-800 mt-1">{{ cy.expense|money }}</div>
+  </div>
+  <div class="kpi-card" style="border-color:{% if cy.operating >= 0 %}#10B981{% else %}#EF4444{% endif %}">
+    <div class="text-xs text-slate-500">영업이익</div>
+    <div class="text-xl font-bold {% if cy.operating >= 0 %}text-green-700{% else %}text-red-600{% endif %} mt-1">{{ cy.operating|money }}</div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+  <div class="card lg:col-span-2">
+    <h3 class="font-semibold text-slate-700 mb-3">연간 추이</h3>
+    <canvas id="yearChart" height="100"></canvas>
+  </div>
+  <div class="card">
+    <h3 class="font-semibold text-slate-700 mb-3">{{ current_year }} 월별 매출·매입</h3>
+    <canvas id="monthChart" height="180"></canvas>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+  <div class="card">
+    <h3 class="font-semibold text-slate-700 mb-3">{{ current_year }} 제품별 매출</h3>
+    <div class="grid grid-cols-3 gap-4 items-start">
+      <div class="col-span-1"><canvas id="productChart"></canvas></div>
+      <div class="col-span-2">
+        <table class="table">
+          <thead><tr><th>제품</th><th class="num">매출</th><th class="num">비중</th></tr></thead>
+          <tbody>
+            {% set total_p = product_data | map(attribute=2) | sum %}
+            {% for code, name, amt in product_data %}
+            <tr>
+              <td>{{ name or '기타' }}</td>
+              <td class="num">{{ amt|money }}</td>
+              <td class="num text-slate-500">{% if total_p %}{{ (amt/total_p*100)|pct }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h3 class="font-semibold text-slate-700 mb-3">{{ current_year }} 거래처 TOP10 매출</h3>
+    <table class="table">
+      <thead><tr><th class="w-8">#</th><th>거래처</th><th class="num">매출</th></tr></thead>
+      <tbody>
+        {% for name, amt in top_parties %}
+        <tr><td class="text-slate-400">{{ loop.index }}</td><td>{{ name }}</td><td class="num">{{ amt|money }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  <div class="card">
+    <h3 class="font-semibold text-slate-700 mb-3">미수금 잔액 TOP10</h3>
+    <table class="table">
+      <thead><tr><th>거래처</th><th class="num">발행누계</th><th class="num">입금누계</th><th class="num">잔액</th></tr></thead>
+      <tbody>
+        {% for r in ar_top %}
+        <tr>
+          <td>{{ r.name }}</td>
+          <td class="num text-slate-500">{{ r.invoiced|money }}</td>
+          <td class="num text-slate-500">{{ r.paid|money }}</td>
+          <td class="num font-semibold {% if r.balance > 0 %}text-red-600{% endif %}">{{ r.balance|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="grid grid-cols-1 gap-4">
+    <div class="card">
+      <h3 class="font-semibold text-slate-700 mb-3">차입금 현황</h3>
+      <table class="table">
+        <thead><tr><th>구분</th><th class="num">건수</th><th class="num">현재잔액</th></tr></thead>
+        <tbody>
+          {% set tb = namespace(t=0) %}
+          {% for kind, cnt, bal in loan_summary %}
+          <tr><td>{{ kind or '미분류' }}</td><td class="num">{{ cnt }}</td><td class="num">{{ bal|money }}</td></tr>
+          {% set tb.t = tb.t + bal %}
+          {% endfor %}
+          <tr class="font-bold"><td>합계</td><td></td><td class="num">{{ tb.t|money }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3 class="font-semibold text-slate-700 mb-3">계약 현황</h3>
+      <table class="table">
+        <thead><tr><th>상태</th><th class="num">건수</th><th class="num">계약금액 합계</th></tr></thead>
+        <tbody>
+          {% for status, cnt, amt in contracts_by_status %}
+          <tr>
+            <td>{% if status == '진행' %}<span class="badge badge-green">진행</span>{% elif status == '만료' %}<span class="badge badge-gray">만료</span>{% else %}<span class="badge badge-red">{{ status or '미분류' }}</span>{% endif %}</td>
+            <td class="num">{{ cnt }}</td>
+            <td class="num">{{ amt|money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const fmt = v => v == null ? '' : new Intl.NumberFormat('ko-KR').format(v);
+const moneyFmt = (ctx) => fmt(ctx.parsed.y || ctx.parsed);
+
+// 연간 차트
+const yearLabels = [{% for y in years_data %}'{{ y }}',{% endfor %}];
+const ySales = [{% for y, d in years_data.items() %}{{ d.sales|round|int }},{% endfor %}];
+const yPurch = [{% for y, d in years_data.items() %}{{ d.purchases|round|int }},{% endfor %}];
+const yOp = [{% for y, d in years_data.items() %}{{ d.operating|round|int }},{% endfor %}];
+
+new Chart(document.getElementById('yearChart'), {
+  type: 'bar',
+  data: {
+    labels: yearLabels,
+    datasets: [
+      { label: '매출', data: ySales, backgroundColor: '#2563EB' },
+      { label: '매입', data: yPurch, backgroundColor: '#94A3B8' },
+      { label: '영업이익', data: yOp, backgroundColor: '#10B981' },
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y) }}},
+    scales: { y: { ticks: { callback: v => fmt(v) }}}
+  }
+});
+
+// 월별 차트
+const months = [{% for m in months_data %}'{{ m.month }}월',{% endfor %}];
+const mSales = [{% for m in months_data %}{{ m.sales|round|int }},{% endfor %}];
+const mPurch = [{% for m in months_data %}{{ m.purchases|round|int }},{% endfor %}];
+new Chart(document.getElementById('monthChart'), {
+  type: 'line',
+  data: {
+    labels: months,
+    datasets: [
+      { label: '매출', data: mSales, borderColor: '#2563EB', backgroundColor: 'rgba(37,99,235,0.1)', tension: 0.2, fill: true },
+      { label: '매입', data: mPurch, borderColor: '#94A3B8', backgroundColor: 'rgba(148,163,184,0.1)', tension: 0.2, fill: true },
+    ]
+  },
+  options: {
+    plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y) }}},
+    scales: { y: { ticks: { callback: v => fmt(v) }}}
+  }
+});
+
+// 제품별 도넛
+const pLabels = [{% for code, name, amt in product_data %}'{{ name or "기타" }}',{% endfor %}];
+const pData = [{% for code, name, amt in product_data %}{{ amt|round|int }},{% endfor %}];
+new Chart(document.getElementById('productChart'), {
+  type: 'doughnut',
+  data: { labels: pLabels, datasets: [{ data: pData, backgroundColor: ['#2563EB','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#6366F1','#94A3B8'] }] },
+  options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.label + ': ' + fmt(ctx.parsed) }}}}
+});
+</script>
+{% endblock %}

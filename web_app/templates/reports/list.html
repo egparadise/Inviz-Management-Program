@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}{{ cat_label }} — 인비즈 경영관리{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">
+    {{ cat_icon }} {{ cat_label }}
+    <span class="badge badge-purple" title="이 기능에 사용되는 AI 모델">🤖 {{ ai_label() }}</span>
+  </h1>
+  <div class="flex gap-2">
+    <a href="/reports/template" class="btn btn-secondary">📊 표준 Excel 양식</a>
+  </div>
+</div>
+
+{% if request.query_params.get('error') %}
+<div class="card mb-4 bg-red-50 border border-red-300">
+  <div class="text-sm text-red-700">⚠️ {{ request.query_params.get('error') }}</div>
+</div>
+{% endif %}
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">사용 방법</h3>
+  {% if cat_desc %}<p class="text-sm text-slate-700 mb-2">{{ cat_desc }}</p>{% endif %}
+  <ol class="text-sm text-slate-700 space-y-1 ml-4 list-decimal">
+    <li><b>양식 업로드</b> — Excel(.xlsx) 또는 PDF 파일을 올립니다.</li>
+    <li><b>🤖 AI 분석</b>
+      <ul class="ml-4 list-disc text-slate-600">
+        <li>Excel: 셀의 <code class="bg-purple-50 px-1 rounded">{{ '{{ 매출.올해 }}' }}</code>, <code class="bg-purple-50 px-1 rounded">{{ '{{ 영업이익.올해 }}' }}</code> 같은 자리표시자를 회사 데이터로 자동 치환·편집</li>
+        <li>PDF: 양식을 읽어 회사 재무데이터로 항목별 금액을 채워 표로 생성·편집</li>
+      </ul>
+    </li>
+    <li>📊 <b>Excel</b> · 📄 <b>PDF</b> 로 출력(다운로드)</li>
+  </ol>
+</div>
+
+<!-- 신규 양식 업로드 -->
+<div class="card mb-4">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">📤 신규 양식 업로드 (Excel 또는 PDF)</h3>
+  <form method="post" action="/reports/upload" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <input type="hidden" name="category" value="{{ category }}">
+    <label class="block md:col-span-1">
+      <span class="text-xs text-slate-500">양식 이름</span>
+      <input type="text" name="name" class="input mt-1" placeholder="(비우면 파일명 사용)">
+    </label>
+    <label class="block md:col-span-2">
+      <span class="text-xs text-slate-500">설명 (선택)</span>
+      <input type="text" name="description" class="input mt-1" placeholder="{{ cat_label }} 양식">
+    </label>
+    <label class="block md:col-span-2">
+      <span class="text-xs text-slate-500">양식 파일 (.xlsx 또는 .pdf)</span>
+      <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.pdf" required class="mt-1 block w-full text-sm text-slate-600
+        file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold
+        file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 cursor-pointer">
+    </label>
+    <div class="flex items-end">
+      <button class="btn btn-primary w-full">📤 업로드</button>
+    </div>
+  </form>
+</div>
+
+<!-- 저장된 양식 목록 -->
+<div class="card">
+  <h3 class="font-semibold mb-3 text-slate-700">저장된 {{ cat_label }} 양식 ({{ templates_list|length }}건)</h3>
+  {% if templates_list %}
+  <table class="table">
+    <thead>
+      <tr><th>이름</th><th>형식</th><th>설명</th><th class="num">크기</th><th>등록일</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for t in templates_list %}
+      <tr>
+        <td class="font-semibold">
+          <a href="/reports/{{ t.id }}" class="text-purple-700 hover:underline">{{ t.name }}</a>
+          <div class="text-xs text-slate-400">{{ t.file_name }}</div>
+        </td>
+        <td>
+          {% if (t.file_kind or 'xlsx') == 'pdf' %}<span class="badge" style="background:#fde8e8;color:#b91c1c;">PDF</span>
+          {% else %}<span class="badge" style="background:#e8f0fe;color:#1d4ed8;">Excel</span>{% endif %}
+        </td>
+        <td class="text-xs text-slate-600">{{ t.description or '-' }}</td>
+        <td class="num text-xs text-slate-500">{{ "{:,}".format(t.file_size or 0) }} B</td>
+        <td class="text-xs text-slate-500">{{ t.created_at.strftime('%Y-%m-%d') if t.created_at else '' }}</td>
+        <td>
+          <a href="/reports/{{ t.id }}" class="text-purple-700 text-xs font-semibold">🤖 분석</a>
+          <a href="/reports/{{ t.id }}/export.xlsx" class="text-slate-600 text-xs ml-2" title="Excel">📊</a>
+          <a href="/reports/{{ t.id }}/export.pdf" class="text-slate-600 text-xs ml-1" title="PDF">📄</a>
+          <form method="post" action="/reports/{{ t.id }}/delete" class="inline" onsubmit="return confirm('양식 삭제?')">
+            <button class="text-red-600 text-xs ml-2">삭제</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="text-center text-slate-400 py-8">
+    저장된 양식이 없습니다. 위에서 첫 양식(Excel 또는 PDF)을 업로드하세요.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

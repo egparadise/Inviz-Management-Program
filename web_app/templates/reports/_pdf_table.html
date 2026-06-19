@@ -1,0 +1,26 @@
+<div class="flex items-center justify-between mb-2">
+  <div class="text-sm font-semibold" style="color:var(--inviz-purple);">✅ AI 분석 결과 — 값을 직접 수정할 수 있습니다</div>
+  <div class="text-xs text-slate-400">저장본 #{{ snap_id }}{% if year %} · 기준 {{ year }}년{% endif %}</div>
+</div>
+<table class="table" id="pdfTbl">
+  <thead>
+    <tr><th style="width:48%">항목</th><th class="num" style="width:28%">금액(원)</th><th>비고</th><th style="width:32px"></th></tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><input class="input it" value="{{ r['항목'] }}"></td>
+      <td><input class="input amt num" type="number" value="{{ (r['금액'] or 0)|int }}" style="text-align:right"></td>
+      <td><input class="input note" value="{{ r['비고'] }}"></td>
+      <td><button type="button" class="text-red-500 text-xs" onclick="this.closest('tr').remove()" title="행 삭제">✕</button></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<input type="hidden" id="pdfSnapId" value="{{ snap_id }}">
+<div class="flex gap-2 mt-3 flex-wrap">
+  <button type="button" class="btn btn-secondary" onclick="pdfAddRow()">+ 행 추가</button>
+  <button type="button" class="btn btn-primary" onclick="pdfSave().then(()=>alert('저장되었습니다.'))">💾 저장</button>
+  <button type="button" class="btn btn-secondary" onclick="pdfExport('xlsx')">📊 Excel 다운로드</button>
+  <button type="button" class="btn btn-secondary" onclick="pdfExport('pdf')">📄 PDF 다운로드</button>
+</div>

@@ -1,0 +1,74 @@
+# ===================================================================
+#  인비즈 경영관리 — .gitignore
+#  ⚠️ 민감정보(회사 데이터·DB·비밀·API키·인증서)는 절대 커밋하지 않습니다.
+#     이 항목들은 별도 "데이터 패치"(inviz_data_patch.zip)로 서버에 적용합니다.
+# ===================================================================
+
+# ----- 통합 Excel 마스터 / 모든 스프레드시트 (회사 전체 데이터) -----
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+*.csv
+
+# ----- 데이터베이스 -----
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ----- 환경변수 · 비밀 (예시 파일만 허용) -----
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# ----- 인증서 · 키 -----
+certs/
+*.pem
+*.key
+*.crt
+*.pfx
+
+# ----- 데이터 · 산출물 디렉토리 -----
+db_backup/
+vector_store/
+doc_uploads/
+report_templates/
+report_snapshots/
+sync_log/
+logs/
+data/
+dist/
+_deploy/
+
+# ----- 배포 데이터 패치(민감) -----
+inviz_data_patch.zip
+*_data_patch.zip
+
+# ----- Windows 로컬 런처 (비밀번호 포함 가능) -----
+*.bat
+*.vbs
+*.ps1
+
+# ----- 일회성/임시 스크립트 -----
+web_app/_*.py
+
+# ----- 파이썬 캐시 / 가상환경 -----
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ----- OS / 에디터 -----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/

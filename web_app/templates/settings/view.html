@@ -1,0 +1,979 @@
+{% extends "base.html" %}
+{% block title %}설정 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<style>
+  @keyframes saved-flash-anim { 0% { background:#D1FAE5; box-shadow:0 0 0 3px rgba(16,185,129,0.3); } 100% { background:#fff; box-shadow:none; } }
+  .saved-flash { animation: saved-flash-anim 2.2s ease-out; border-color:#10B981 !important; }
+  #browseModal .row { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:6px; cursor:pointer; font-size:13px; }
+  #browseModal .row:hover { background: var(--inviz-purple-50); }
+  /* 설정 좌측 메뉴 + 페이지 */
+  .set-shell { display:flex; gap:16px; align-items:flex-start; }
+  .set-menu { flex:0 0 210px; position:sticky; top:12px; display:flex; flex-direction:column; gap:2px;
+              background:#fff; border:1px solid #eef0f3; border-radius:10px; padding:8px; }
+  .set-menu a { display:flex; align-items:center; gap:8px; padding:9px 12px; border-radius:8px; font-size:14px; color:#475569; text-decoration:none; white-space:nowrap; }
+  .set-menu a:hover { background:#f5f3ff; }
+  .set-menu a.active { background:var(--inviz-purple); color:#fff; font-weight:600; }
+  .set-content { flex:1; min-width:0; }
+  @media (max-width:860px){ .set-shell{ flex-direction:column; } .set-menu{ flex-direction:row; flex-wrap:nowrap; overflow-x:auto; position:static; width:100%; } }
+</style>
+
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">⚙️ 설정</h1>
+</div>
+
+<div class="set-shell">
+  <!-- 좌측 메뉴 -->
+  <aside class="set-menu">
+    {% for key, label, icon in pages %}
+    <a href="/settings/{{ key }}" class="{% if page == key %}active{% endif %}">{{ icon }} {{ label }}</a>
+    {% endfor %}
+  </aside>
+
+  <!-- 페이지 내용 -->
+  <div class="set-content">
+    {% if request.query_params.get('saved') %}
+    <div class="card mb-4 bg-green-50 border border-green-200"><div class="text-sm text-green-900"><strong>✓ 설정이 저장되었습니다.</strong></div></div>{% endif %}
+    {% if request.query_params.get('pw_saved') %}
+    <div class="card mb-4 bg-green-50 border border-green-200"><div class="text-sm text-green-900"><strong>✓ 비밀번호가 변경되었습니다.</strong></div></div>{% endif %}
+    {% if request.query_params.get('user_saved') %}
+    <div class="card mb-4 bg-green-50 border border-green-200"><div class="text-sm text-green-900"><strong>✓ 사용자 정보가 갱신되었습니다.</strong></div></div>{% endif %}
+    {% if request.query_params.get('pw_error') %}
+    <div class="card mb-4 bg-red-50 border border-red-300"><div class="text-sm text-red-700">⚠️ {{ request.query_params.get('pw_error') }}</div></div>{% endif %}
+    {% if request.query_params.get('user_error') %}
+    <div class="card mb-4 bg-red-50 border border-red-300"><div class="text-sm text-red-700">⚠️ {{ request.query_params.get('user_error') }}</div></div>{% endif %}
+
+{# ==================== 일반 / 화면 ==================== #}
+{% if page == 'general' %}
+  <div class="card mb-4" id="base" style="border:2px solid var(--inviz-purple); background:#FAF5FF;">
+    <h3 class="font-semibold mb-1 flex items-center gap-2" style="color: var(--inviz-purple);">📁 기본 데이터 폴더 <span class="text-xs font-normal text-slate-500">— 시스템 전체 분석의 기준</span></h3>
+    <p class="text-xs text-slate-500 mb-3">이 폴더 안의 <b>모든 하위 폴더·자료</b>를 AI가 분석하여 매출·매입·계약·급여 등으로 자동 분류·적용합니다. 비워두면 기본 경영정보 폴더(14.경영정보)를 사용합니다.</p>
+    {% if request.query_params.get('base_applying') %}
+    <div class="mb-3 p-2 rounded bg-blue-50 border border-blue-200 text-sm text-blue-900">🤖 <b>AI 분석·적용을 시작했습니다.</b> 백그라운드로 폴더 전체를 스캔→분류→DB 반영→벡터 학습합니다 (수 분 소요). <a href="/self-dev" class="underline">자가발전 페이지</a>에서 확인.</div>{% endif %}
+    <form method="post" action="/settings/save" class="flex items-end gap-2 flex-wrap">
+      <input type="hidden" name="_section" value="base">
+      <label class="block flex-1" style="min-width:300px;">
+        <span class="text-xs text-slate-500">기본 폴더 경로</span>
+        <div class="flex gap-2 mt-1">
+          <input name="base_data_folder" id="base_data_folder" value="{{ cfg.base_data_folder }}" class="input" placeholder="예: C:\Users\...\14.경영정보 (비우면 기본값)">
+          <button type="button" class="btn btn-secondary whitespace-nowrap" onclick="openBrowse('base_data_folder','replace')">📁 폴더 찾기</button>
+        </div>
+      </label>
+      <button class="btn btn-primary">💾 저장</button>
+    </form>
+    <div class="flex items-center justify-between flex-wrap gap-2 mt-2">
+      <div class="text-xs">
+        {% if cfg.base_data_folder %}{% if base_folder_exists %}<span class="text-green-700">✅ 현재: <code>{{ cfg.base_data_folder }}</code></span>{% else %}<span class="text-amber-700">⚠️ 경로 없음: <code>{{ cfg.base_data_folder }}</code></span>{% endif %}{% else %}<span class="text-slate-400">기본 경영정보 폴더(14.경영정보) 사용 중</span>{% endif %}
+      </div>
+      <div>
+        <button type="button" class="btn btn-accent" onclick="startBaseApply()">🤖 적용 (전체 AI 분석)</button>
+      </div>
+    </div>
+
+    <!-- AI 분석 진행 애니메이션 -->
+    <div id="base-apply-progress" class="hidden mt-4 rounded-lg p-4"
+         style="background: linear-gradient(135deg, #FAF5FF 0%, #FFF7ED 100%); border: 2px solid #C4B5FD;">
+      <div class="flex items-center gap-4">
+        <!-- 펄싱 두뇌 아이콘 + 스피너 -->
+        <div class="relative" style="width:56px;height:56px;">
+          <div class="ai-spinner-ring"></div>
+          <div class="ai-brain-pulse absolute inset-0 flex items-center justify-center text-3xl">🧠</div>
+        </div>
+        <div class="flex-grow">
+          <div class="flex items-center justify-between mb-1">
+            <div class="font-bold text-purple-800" id="base-stage">🚀 초기화</div>
+            <div class="text-2xl font-bold" style="color: var(--inviz-orange);"><span id="base-percent">0</span>%</div>
+          </div>
+          <div class="w-full bg-white rounded-full h-3 overflow-hidden shadow-inner">
+            <div id="base-progress-bar"
+                 class="h-3 transition-all duration-700 ease-out"
+                 style="width:0%; background: linear-gradient(90deg, #7C3AED 0%, #F97316 100%);"></div>
+          </div>
+          <div class="text-xs text-slate-600 mt-2 flex items-center gap-2">
+            <span class="ai-dot"></span>
+            <span id="base-detail">AI가 폴더를 분석하기 시작합니다...</span>
+          </div>
+        </div>
+      </div>
+      <div id="base-mini-stats" class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-xs"></div>
+    </div>
+
+    <!-- 완료 후 분석 보고서 모달 -->
+    <div id="base-report-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+         style="background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="p-6 border-b sticky top-0 bg-white rounded-t-2xl flex items-center justify-between"
+             style="background: linear-gradient(90deg, #FAF5FF 0%, #FFF7ED 100%);">
+          <div>
+            <h2 class="text-2xl font-bold" style="color: var(--inviz-purple);">🎯 AI 분석 보고서</h2>
+            <div class="text-xs text-slate-500 mt-1" id="rpt-meta"></div>
+          </div>
+          <button type="button" onclick="closeReport()" class="text-2xl text-slate-400 hover:text-slate-700">✕</button>
+        </div>
+        <div class="p-6 space-y-4">
+          <!-- 개선 요약 -->
+          <div>
+            <h3 class="font-bold text-lg mb-2" style="color: var(--inviz-purple);">✨ 개선된 기능</h3>
+            <ul id="rpt-improvements" class="space-y-1 text-sm"></ul>
+          </div>
+          <!-- 변경된 항목 -->
+          <div>
+            <h3 class="font-bold text-lg mb-2" style="color: var(--inviz-purple);">📊 변경된 항목</h3>
+            <div id="rpt-changes" class="overflow-x-auto"></div>
+          </div>
+          <!-- 상세 메트릭 -->
+          <div>
+            <h3 class="font-bold text-lg mb-2" style="color: var(--inviz-purple);">🔧 상세 처리 결과</h3>
+            <div id="rpt-details" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm"></div>
+          </div>
+          <div id="rpt-error" class="hidden bg-red-50 border border-red-300 rounded p-3 text-sm text-red-700"></div>
+        </div>
+        <div class="p-4 border-t flex justify-end gap-2 sticky bottom-0 bg-white rounded-b-2xl">
+          <button type="button" onclick="closeReport()" class="btn btn-secondary">닫기</button>
+          <a href="/" class="btn btn-accent">🏠 대시보드 가기</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .ai-spinner-ring {
+      position: absolute; inset: 0;
+      border: 4px solid #E9D5FF;
+      border-top-color: #7C3AED;
+      border-right-color: #F97316;
+      border-radius: 50%;
+      animation: ai-spin 1.2s linear infinite;
+    }
+    @keyframes ai-spin { to { transform: rotate(360deg); } }
+    .ai-brain-pulse { animation: brain-pulse 1.8s ease-in-out infinite; }
+    @keyframes brain-pulse {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(124,58,237,0)); }
+      50% { transform: scale(1.15); filter: drop-shadow(0 0 12px rgba(124,58,237,0.8)); }
+    }
+    .ai-dot {
+      display:inline-block; width:8px; height:8px; border-radius:50%;
+      background: var(--inviz-purple); animation: ai-dot-blink 1s infinite;
+    }
+    @keyframes ai-dot-blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+  </style>
+
+  <script>
+  let baseTimer = null;
+  let currentRunId = null;
+
+  async function startBaseApply() {
+    const folder = document.getElementById('base_data_folder').value.trim();
+    if (!folder) { alert('기본 폴더 경로를 입력하세요.'); return; }
+    if (!confirm('기본 폴더 전체를 AI가 분석하여 시스템에 적용합니다.\n1~5분 소요됩니다. 진행할까요?')) return;
+
+    document.getElementById('base-apply-progress').classList.remove('hidden');
+    document.getElementById('base-stage').textContent = '🚀 분석 시작 중...';
+    document.getElementById('base-percent').textContent = '0';
+    document.getElementById('base-progress-bar').style.width = '0%';
+    document.getElementById('base-detail').textContent = 'AI 엔진을 호출하고 있습니다...';
+    document.getElementById('base-mini-stats').innerHTML = '';
+
+    try {
+      const fd = new FormData();
+      fd.append('base_data_folder', folder);
+      const r = await fetch('/settings/base-folder/start', {method: 'POST', body: fd});
+      const d = await r.json();
+      if (d.error) {
+        document.getElementById('base-stage').textContent = '❌ ' + d.error;
+        return;
+      }
+      currentRunId = d.run_id;
+      baseTimer = setInterval(() => pollBaseStatus(currentRunId), 1200);
+    } catch (e) {
+      document.getElementById('base-stage').textContent = '❌ ' + e;
+    }
+  }
+
+  async function pollBaseStatus(runId) {
+    try {
+      const r = await fetch('/settings/base-folder/status?run_id=' + runId);
+      const d = await r.json();
+      document.getElementById('base-stage').textContent = d.stage || '진행 중';
+      const pct = Math.round(d.progress || 0);
+      document.getElementById('base-percent').textContent = pct;
+      document.getElementById('base-progress-bar').style.width = pct + '%';
+
+      // 상세
+      const bits = [];
+      if (d.files_processed) bits.push(`처리 ${d.files_processed.toLocaleString()} 파일`);
+      if (d.rows_added) bits.push(`적재 ${d.rows_added.toLocaleString()} 행`);
+      if (d.llm_classify) bits.push(`LLM 분류 ${(d.llm_classify.classified||0)} (자동 ${(d.llm_classify.auto_assigned||0)})`);
+      if (d.rag && d.rag.embedded != null) bits.push(`RAG 임베딩 ${d.rag.embedded}`);
+      document.getElementById('base-detail').textContent = bits.join(' · ') || 'AI 모델이 분석하고 있습니다...';
+
+      // 미니 통계
+      const stats = [];
+      if (d.files_processed) stats.push({l:'파일 처리', v: d.files_processed.toLocaleString()});
+      if (d.rows_added)      stats.push({l:'적재 행', v: d.rows_added.toLocaleString()});
+      if (d.llm_classify)    stats.push({l:'LLM 분류', v: (d.llm_classify.classified||0)});
+      if (d.rag)             stats.push({l:'RAG 청크', v: (d.rag.embedded||0)});
+      document.getElementById('base-mini-stats').innerHTML = stats.map(s =>
+        `<div class="bg-white rounded p-2 text-center border">
+           <div class="text-slate-500">${s.l}</div>
+           <div class="font-bold text-purple-700">${s.v}</div>
+         </div>`).join('');
+
+      if (d.finished_at) {
+        clearInterval(baseTimer); baseTimer = null;
+        setTimeout(() => showBaseReport(runId), 600);
+      }
+    } catch (e) {
+      console.error('polling error', e);
+    }
+  }
+
+  async function showBaseReport(runId) {
+    const r = await fetch('/settings/base-folder/report?run_id=' + runId);
+    const d = await r.json();
+    document.getElementById('rpt-meta').textContent =
+      `소요 시간 ${d.elapsed_s}초 · 폴더: ${d.folder || ''}`;
+
+    document.getElementById('rpt-improvements').innerHTML =
+      (d.improvements || []).map(t => `<li class="flex items-start gap-2"><span class="text-green-600 font-bold">●</span><span>${t}</span></li>`).join('') ||
+      '<li class="text-slate-400">변경 없음</li>';
+
+    // 변화 표
+    const changes = d.changes || [];
+    if (changes.length === 0) {
+      document.getElementById('rpt-changes').innerHTML = '<p class="text-slate-400 text-sm">변경된 항목 없음 (모든 데이터가 동일)</p>';
+    } else {
+      document.getElementById('rpt-changes').innerHTML = `
+        <table class="table w-full text-sm">
+          <thead><tr><th class="text-left">항목</th><th class="num">전</th><th class="num">후</th><th class="num">증감</th><th class="num">%</th></tr></thead>
+          <tbody>${changes.map(c => {
+            const sign = c.diff > 0 ? '+' : '';
+            const color = c.diff > 0 ? 'text-green-700' : 'text-red-700';
+            const pct = c.pct != null ? (c.pct.toFixed(1) + '%') : '—';
+            return `<tr>
+              <td>${c.label}</td>
+              <td class="num">${c.before.toLocaleString()}</td>
+              <td class="num font-semibold">${c.after.toLocaleString()}</td>
+              <td class="num ${color} font-bold">${sign}${c.diff.toLocaleString()}</td>
+              <td class="num ${color}">${pct}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>`;
+    }
+
+    // 상세
+    const dt = [];
+    dt.push({l:'파일 처리', v: (d.files_processed||0).toLocaleString()});
+    dt.push({l:'오류 파일', v: (d.files_errored||0).toLocaleString()});
+    dt.push({l:'적재 행', v: (d.rows_added||0).toLocaleString()});
+    if (d.llm_classify) {
+      dt.push({l:'LLM 분류 시도', v: (d.llm_classify.classified||0)});
+      dt.push({l:'자동 도메인 매핑', v: (d.llm_classify.auto_assigned||0)});
+      dt.push({l:'검토 큐 대기', v: (d.llm_classify.queued||0)});
+    }
+    if (d.rag) {
+      dt.push({l:'RAG 신규 청크', v: (d.rag.embedded||0)});
+      dt.push({l:'RAG 오류', v: (d.rag.errors||0)});
+    }
+    document.getElementById('rpt-details').innerHTML = dt.map(s =>
+      `<div class="bg-purple-50 rounded p-2 border border-purple-200">
+         <div class="text-slate-500 text-xs">${s.l}</div>
+         <div class="font-bold text-purple-800 text-lg">${s.v}</div>
+       </div>`).join('');
+
+    if (d.error) {
+      const e = document.getElementById('rpt-error');
+      e.classList.remove('hidden');
+      e.textContent = '⚠️ 오류: ' + d.error;
+    }
+
+    document.getElementById('base-report-modal').classList.remove('hidden');
+  }
+
+  function closeReport() {
+    document.getElementById('base-report-modal').classList.add('hidden');
+  }
+  </script>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <form method="post" action="/settings/save" class="card">
+      <input type="hidden" name="_section" value="appearance">
+      <div class="flex items-center justify-between mb-3"><h3 class="font-semibold" style="color: var(--inviz-purple);">🎨 외관 / 화면</h3><button class="btn btn-accent text-xs px-3 py-1">💾 저장</button></div>
+      <div class="space-y-3">
+        <label class="block"><span class="text-xs text-slate-500">글자 크기</span>
+          <select name="ui_font_scale" class="select mt-1">
+            <option value="90"  {% if cfg.ui_font_scale=='90'  %}selected{% endif %}>작게 (90%)</option>
+            <option value="100" {% if cfg.ui_font_scale=='100' %}selected{% endif %}>보통 (100%)</option>
+            <option value="110" {% if cfg.ui_font_scale=='110' %}selected{% endif %}>크게 (110%)</option>
+            <option value="125" {% if cfg.ui_font_scale=='125' %}selected{% endif %}>아주 크게 (125%)</option>
+          </select></label>
+        <label class="block"><span class="text-xs text-slate-500">입력창 크기</span>
+          <select name="ui_input_size" class="select mt-1">
+            <option value="compact" {% if cfg.ui_input_size=='compact' %}selected{% endif %}>좁게 (compact)</option>
+            <option value="normal"  {% if cfg.ui_input_size=='normal'  %}selected{% endif %}>보통 (normal)</option>
+            <option value="large"   {% if cfg.ui_input_size=='large'   %}selected{% endif %}>크게 (large)</option>
+          </select></label>
+        <label class="block"><span class="text-xs text-slate-500">상단 제목</span><input name="app_title" value="{{ cfg.app_title }}" class="input mt-1"></label>
+        <label class="flex items-center gap-2 mt-2"><input type="checkbox" name="ui_logo_show" value="1" {% if cfg.ui_logo_show=='1' %}checked{% endif %}><span class="text-sm text-slate-700">로고 표시</span></label>
+      </div>
+    </form>
+
+    <form method="post" action="/settings/save" class="card">
+      <input type="hidden" name="_section" value="output">
+      <div class="flex items-center justify-between mb-3"><h3 class="font-semibold" style="color: var(--inviz-purple);">📄 파일 출력</h3><button class="btn btn-accent text-xs px-3 py-1">💾 저장</button></div>
+      <div class="space-y-3">
+        <label class="block"><span class="text-xs text-slate-500">기본 출력 형식</span>
+          <select name="export_default" class="select mt-1"><option value="xlsx" {% if cfg.export_default=='xlsx' %}selected{% endif %}>📊 Excel (.xlsx)</option><option value="pdf" {% if cfg.export_default=='pdf' %}selected{% endif %}>📄 PDF</option></select></label>
+        <label class="block"><span class="text-xs text-slate-500">PDF 방향</span>
+          <select name="pdf_orientation" class="select mt-1"><option value="portrait" {% if cfg.pdf_orientation=='portrait' %}selected{% endif %}>세로</option><option value="landscape" {% if cfg.pdf_orientation=='landscape' %}selected{% endif %}>가로</option></select></label>
+      </div>
+    </form>
+
+    <form method="post" action="/settings/save" class="card">
+      <input type="hidden" name="_section" value="search">
+      <div class="flex items-center justify-between mb-3"><h3 class="font-semibold" style="color: var(--inviz-purple);">🔍 검색 기본값 (매출·매입)</h3><button class="btn btn-accent text-xs px-3 py-1">💾 저장</button></div>
+      <div class="space-y-3">
+        <label class="block"><span class="text-xs text-slate-500">기본 검색 기간</span>
+          <select name="search_default_period" class="select mt-1">
+            <option value="none"       {% if cfg.search_default_period=='none' %}selected{% endif %}>전체 (필터 없음)</option>
+            <option value="this_month" {% if cfg.search_default_period=='this_month' %}selected{% endif %}>이번 달</option>
+            <option value="last_month" {% if cfg.search_default_period=='last_month' %}selected{% endif %}>지난 달</option>
+            <option value="ytd"        {% if cfg.search_default_period=='ytd' %}selected{% endif %}>올해 누계 (YTD)</option>
+          </select></label>
+        <label class="block"><span class="text-xs text-slate-500">페이지당 표시 건수</span>
+          <select name="search_per_page" class="select mt-1">{% for n in ['50','100','200','500'] %}<option value="{{ n }}" {% if cfg.search_per_page==n %}selected{% endif %}>{{ n }}건</option>{% endfor %}</select></label>
+      </div>
+    </form>
+
+    <div class="card">
+      <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">🖼 로고 적용</h3>
+      <div class="flex items-center gap-4 flex-wrap">
+        <div class="brand-logo-wrap" style="background:var(--inviz-purple);"><img src="/static/img/{{ cfg.ui_logo_custom or 'inviz_logo.png' }}" class="brand-logo-img" style="height:40px;" onerror="this.src='/static/img/inviz_logo.svg'"></div>
+        <form method="post" action="/settings/logo" enctype="multipart/form-data" class="flex items-center gap-2">
+          <input type="file" name="file" accept="image/*" required class="text-sm text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 cursor-pointer">
+          <button class="btn btn-primary">업로드</button>
+        </form>
+        {% if cfg.ui_logo_custom %}<form method="post" action="/settings/logo/reset"><button class="btn btn-secondary">기본 로고로</button></form>{% endif %}
+      </div>
+      <div class="text-xs text-slate-500 mt-2">PNG·JPG·SVG 권장. 업로드 시 상단 로고에 즉시 적용됩니다.</div>
+    </div>
+  </div>
+{% endif %}
+
+{# ==================== 네트워크 / 사내접속 ==================== #}
+{% if page == 'network' %}
+<form method="post" action="/settings/save" class="card mb-4">
+  <input type="hidden" name="_section" value="network">
+  <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+    <h3 class="font-semibold flex items-center gap-2" style="color: var(--inviz-purple);">
+      🌐 사내망 (인트라넷) 접속 설정
+    </h3>
+    <button class="btn btn-accent text-xs px-3 py-1">💾 저장</button>
+  </div>
+  <p class="text-sm text-slate-600 mb-3">
+    💡 이 PC를 사내 다른 PC에서 접속 가능하게 하고, 외부 표시용 도메인(예: <code>www.invizaccount.com</code>)을 등록합니다.
+    저장 후 <b>서버 재시작</b>해야 호스트·포트 변경이 반영됩니다.
+  </p>
+
+  <div class="mb-4 p-3 rounded-lg" style="background: linear-gradient(135deg, #FAF5FF 0%, #FFF7ED 100%); border:2px solid #C4B5FD;">
+    <div class="text-xs text-slate-500 mb-1">현재 PC 네트워크 정보 (자동 감지)</div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+      {% for ip in net_ips %}
+      <div class="bg-white rounded p-2 border text-sm">
+        <div class="text-xs text-slate-500">LAN IPv4</div>
+        <div class="font-mono font-semibold text-purple-700">{{ ip }}</div>
+        <a href="http://{{ ip }}:{{ cfg.net_port or '8000' }}" target="_blank" class="text-xs text-orange-600 underline">접속 테스트 →</a>
+      </div>
+      {% endfor %}
+      {% if not net_ips %}<div class="text-sm text-slate-400">LAN 주소를 감지할 수 없습니다.</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="border rounded-lg p-3">
+      <h4 class="font-semibold mb-2 text-sm" style="color: var(--inviz-purple);">📡 바인딩 & 포트</h4>
+      <label class="block mb-2">
+        <span class="text-xs text-slate-500">바인딩 호스트</span>
+        <select name="net_bind_host" class="select mt-1">
+          <option value="127.0.0.1" {% if cfg.net_bind_host=='127.0.0.1' %}selected{% endif %}>127.0.0.1 (이 PC만 — 보안)</option>
+          <option value="0.0.0.0" {% if cfg.net_bind_host=='0.0.0.0' %}selected{% endif %}>0.0.0.0 (사내 다른 PC 허용)</option>
+          {% for ip in net_ips %}
+          <option value="{{ ip }}" {% if cfg.net_bind_host==ip %}selected{% endif %}>{{ ip }} (특정 IP만)</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="block mb-2">
+        <span class="text-xs text-slate-500">포트 (80/443은 관리자 권한)</span>
+        <input type="number" name="net_port" value="{{ cfg.net_port or '8000' }}" class="input mt-1" min="1" max="65535">
+      </label>
+      <label class="flex items-center gap-2 text-sm mt-2 cursor-pointer">
+        <input type="checkbox" name="net_intranet_enabled" value="1" {% if cfg.net_intranet_enabled=='1' %}checked{% endif %}>
+        <span>🏢 사내망 접속 허용 (저장 시 자동으로 0.0.0.0 바인딩)</span>
+      </label>
+    </div>
+
+    <div class="border rounded-lg p-3">
+      <h4 class="font-semibold mb-2 text-sm" style="color: var(--inviz-purple);">🌐 외부 표시 도메인</h4>
+      <label class="block mb-2">
+        <span class="text-xs text-slate-500">도메인 (호스트 헤더)</span>
+        <input type="text" name="net_domain" value="{{ cfg.net_domain }}" class="input mt-1" placeholder="예: www.invizaccount.com">
+      </label>
+      <label class="flex items-center gap-2 text-sm mt-3 cursor-pointer">
+        <input type="checkbox" name="net_https" value="1" {% if cfg.net_https=='1' %}checked{% endif %}>
+        <span>🔒 HTTPS 사용 (SSL 인증서 필요)</span>
+      </label>
+      <label class="block mt-2">
+        <span class="text-xs text-slate-500">SSL cert.pem 경로</span>
+        <input type="text" name="net_cert_path" value="{{ cfg.net_cert_path }}" class="input mt-1" placeholder="예: C:\certs\inviz_cert.pem">
+      </label>
+      <label class="block mt-2">
+        <span class="text-xs text-slate-500">SSL key.pem 경로</span>
+        <input type="text" name="net_key_path" value="{{ cfg.net_key_path }}" class="input mt-1" placeholder="예: C:\certs\inviz_key.pem">
+      </label>
+    </div>
+  </div>
+</form>
+
+<!-- 안내 카드: 사내 다른 PC에서 도메인 접속하는 방법 -->
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <h3 class="font-semibold mb-2 flex items-center gap-2" style="color: var(--inviz-purple);">📖 사내 다른 PC에서 도메인으로 접속하기</h3>
+  <ol class="text-sm text-slate-700 space-y-2 ml-5 list-decimal">
+    <li>
+      <b>위 설정에서</b>: 🏢 사내망 접속 허용 체크 + 도메인 입력 + 저장 + 서버 재시작
+    </li>
+    <li>
+      <b>접속할 PC의 hosts 파일에 다음 한 줄 추가</b> (관리자 권한 필요):
+      <div class="bg-slate-100 rounded p-2 mt-1 font-mono text-xs">
+        <div>📁 파일 위치: <code>C:\Windows\System32\drivers\etc\hosts</code></div>
+        <div class="mt-1">📝 추가할 내용:</div>
+        <div class="mt-1 bg-white border rounded px-2 py-1">
+          {% if net_ips %}{{ net_ips[0] }}{% else %}192.168.0.108{% endif %}  {{ cfg.net_domain or 'www.invizaccount.com' }}
+        </div>
+      </div>
+    </li>
+    <li>
+      <b>접속 URL</b>:
+      {% if cfg.net_domain %}
+      <a href="{% if cfg.net_https=='1' %}https{% else %}http{% endif %}://{{ cfg.net_domain }}{% if cfg.net_port and cfg.net_port not in ('80','443') %}:{{ cfg.net_port }}{% endif %}/" target="_blank"
+         class="text-purple-700 underline ml-1 font-mono text-sm">
+        {% if cfg.net_https=='1' %}https{% else %}http{% endif %}://{{ cfg.net_domain }}{% if cfg.net_port and cfg.net_port not in ('80','443') %}:{{ cfg.net_port }}{% endif %}/
+      </a>
+      {% else %}
+      <span class="text-slate-400 text-xs ml-1">도메인 입력 후 저장하면 표시됩니다</span>
+      {% endif %}
+    </li>
+    <li class="text-xs text-slate-500">
+      💡 HTTPS를 쓰려면 자체서명 인증서(<code>openssl req -x509 ...</code>)나 사내 CA로 발급한 cert.pem/key.pem이 필요합니다. 자체서명은 브라우저에서 한 번 "안전하지 않은 사이트로 이동" 클릭으로 허용해야 합니다.
+    </li>
+    <li class="text-xs text-slate-500">
+      ⚠️ 80/443 포트를 쓰려면 서버를 <b>관리자 권한으로 실행</b>해야 합니다 (start.bat 우클릭 → 관리자 권한으로 실행).
+    </li>
+  </ol>
+</div>
+{% endif %}
+
+
+{# ==================== AI 모델·공급자 ==================== #}
+{% if page == 'ai' %}
+  <form method="post" action="/settings/save" class="card mb-4">
+    <input type="hidden" name="_section" value="ai">
+    <div class="flex items-center justify-between mb-3"><h3 class="font-semibold" style="color: var(--inviz-purple);">🤖 기본 AI (Ollama)</h3><button class="btn btn-accent text-xs px-3 py-1">💾 저장</button></div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <label class="block"><span class="text-xs text-slate-500">기본 AI 모델 (챗·분류·보고서 수정)</span>
+        <select name="ai_default_model" class="select mt-1">
+          <option value="llama3.1:latest"      {% if cfg.ai_default_model=='llama3.1:latest' %}selected{% endif %}>llama3.1 (8B, 추천)</option>
+          <option value="llama3.2:latest"      {% if cfg.ai_default_model=='llama3.2:latest' %}selected{% endif %}>llama3.2 (3B, 빠름)</option>
+          <option value="glm-4.7-flash:latest" {% if cfg.ai_default_model=='glm-4.7-flash:latest' %}selected{% endif %}>GLM 4.7 (한국어↑)</option>
+          <option value="llama3:latest"        {% if cfg.ai_default_model=='llama3:latest' %}selected{% endif %}>llama3</option>
+        </select></label>
+      <label class="block"><span class="text-xs text-slate-500">기본 챗 모드</span>
+        <select name="ai_default_mode" class="select mt-1">
+          <option value="auto"   {% if cfg.ai_default_mode=='auto'   %}selected{% endif %}>자동</option>
+          <option value="rag"    {% if cfg.ai_default_mode=='rag'    %}selected{% endif %}>🔍 RAG 검색</option>
+          <option value="search" {% if cfg.ai_default_mode=='search' %}selected{% endif %}>🧪 검색만</option>
+        </select></label>
+    </div>
+  </form>
+
+  <form method="post" action="/settings/save" class="card" id="provider">
+    <input type="hidden" name="_section" value="provider">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <h3 class="font-semibold" style="color: var(--inviz-purple);">⚡ AI 공급자 (속도·품질)</h3>
+      <div class="flex items-center gap-2">
+        <span class="text-xs px-2 py-1 rounded {% if provider_ok %}bg-green-100 text-green-700{% else %}bg-amber-100 text-amber-700{% endif %}">현재: {{ provider_label }} {% if provider_ok %}✓{% else %}⚠️{% endif %}</span>
+        <button type="button" id="ai-ping-btn" class="btn btn-secondary text-xs px-3 py-1" onclick="runAiPing()">🩺 4종 테스트</button>
+        <button class="btn btn-accent text-xs px-3 py-1">💾 저장</button>
+      </div>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">사용할 모델에 <b>하나만 체크</b>하세요. <b>아무것도 체크하지 않으면 기본 AI(Ollama)</b>가 적용됩니다. (자기학습은 항상 오픈소스)</p>
+    <div id="ai-ping-result" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 mb-3"></div>
+    <script>
+    async function runAiPing(){
+      const box = document.getElementById('ai-ping-result');
+      const btn = document.getElementById('ai-ping-btn');
+      box.classList.remove('hidden');
+      box.innerHTML = '<div class="col-span-full text-xs text-slate-500">⏳ 4종 공급자에 pong 응답 요청 중...</div>';
+      btn.disabled = true; btn.textContent = '⏳ 테스트 중...';
+      try {
+        const r = await fetch('/settings/ai/ping');
+        const d = await r.json();
+        const order = ['ollama','openai','anthropic','gemini'];
+        const colors = {ollama:'purple', openai:'green', anthropic:'orange', gemini:'blue'};
+        box.innerHTML = order.map(k => {
+          const x = d[k] || {};
+          const ok = x.ok;
+          const bg = ok ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300';
+          const icon = ok ? '✅' : '❌';
+          const detail = ok
+            ? `<div class="text-xs text-slate-700 mt-1">응답: <span class="font-mono">${(x.response||'').replace(/</g,'&lt;')}</span></div>`
+            : `<div class="text-xs text-red-700 mt-1">오류: ${(x.error||'').replace(/</g,'&lt;')}</div>`;
+          return `<div class="border rounded-lg p-2 ${bg}">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold">${icon} ${x.label||k}</span>
+              <span class="text-xs text-slate-500">${x.latency_ms||0}ms</span>
+            </div>${detail}</div>`;
+        }).join('');
+      } catch(e){
+        box.innerHTML = '<div class="col-span-full text-xs text-red-700">오류: '+e+'</div>';
+      } finally {
+        btn.disabled = false; btn.textContent = '🩺 4종 테스트';
+      }
+    }
+    </script>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="border rounded-lg p-3 prov-card" style="border-color:#C4B5FD; background:#FAF5FF;">
+        <label class="flex items-center justify-between mb-2 cursor-pointer"><span class="font-semibold text-sm">🖥 Ollama (오픈소스)</span><input type="checkbox" name="prov_ollama" class="prov-check" data-prov="ollama" {% if cfg.ai_provider=='ollama' %}checked{% endif %}></label>
+        <div class="text-xs text-slate-500">사용 모델 (기본 AI 모델)</div>
+        <div class="mt-1 text-sm font-mono bg-white border rounded px-2 py-1" style="word-break:break-all;">{{ cfg.ai_default_model }}</div>
+        <div class="text-xs text-slate-400 mt-2">로컬·무료. 모델 변경은 위 <b>🤖 기본 AI</b>에서.</div>
+      </div>
+      <div class="border rounded-lg p-3 prov-card">
+        <label class="flex items-center justify-between mb-2 cursor-pointer"><span class="font-semibold text-sm">⚡ OpenAI (GPT)</span><input type="checkbox" name="prov_openai" class="prov-check" data-prov="openai" {% if cfg.ai_provider=='openai' %}checked{% endif %}></label>
+        <label class="block mb-2"><span class="text-xs text-slate-500">모델</span><input name="ai_openai_model" value="{{ cfg.ai_openai_model }}" class="input mt-1" list="openai-models" placeholder="gpt-4o-mini">
+          <datalist id="openai-models"><option value="gpt-4o-mini"></option><option value="gpt-4o"></option><option value="gpt-4.1-mini"></option><option value="gpt-4.1"></option><option value="o4-mini"></option></datalist></label>
+        <label class="block"><span class="text-xs text-slate-500 flex items-center gap-1"><span style="width:9px;height:9px;border-radius:50%;display:inline-block;background:{{ '#10B981' if key_set.openai else '#EF4444' }};"></span>API 키 {% if key_set.openai %}<span class="text-green-600">등록됨</span>{% else %}<span class="text-red-500">미등록</span>{% endif %}</span>
+          <input type="password" name="ai_openai_key" class="input mt-1" autocomplete="off" placeholder="{% if key_set.openai %}변경 시에만 입력{% else %}sk-...{% endif %}"></label>
+      </div>
+      <div class="border rounded-lg p-3 prov-card">
+        <label class="flex items-center justify-between mb-2 cursor-pointer"><span class="font-semibold text-sm">⚡ Anthropic (Claude)</span><input type="checkbox" name="prov_anthropic" class="prov-check" data-prov="anthropic" {% if cfg.ai_provider=='anthropic' %}checked{% endif %}></label>
+        <label class="block mb-2"><span class="text-xs text-slate-500">모델</span><input name="ai_anthropic_model" value="{{ cfg.ai_anthropic_model }}" class="input mt-1" list="anthropic-models" placeholder="claude-3-5-haiku-latest">
+          <datalist id="anthropic-models"><option value="claude-3-5-haiku-latest"></option><option value="claude-3-5-sonnet-latest"></option><option value="claude-sonnet-4-5"></option></datalist></label>
+        <label class="block"><span class="text-xs text-slate-500 flex items-center gap-1"><span style="width:9px;height:9px;border-radius:50%;display:inline-block;background:{{ '#10B981' if key_set.anthropic else '#EF4444' }};"></span>API 키 {% if key_set.anthropic %}<span class="text-green-600">등록됨</span>{% else %}<span class="text-red-500">미등록</span>{% endif %}</span>
+          <input type="password" name="ai_anthropic_key" class="input mt-1" autocomplete="off" placeholder="{% if key_set.anthropic %}변경 시에만 입력{% else %}sk-ant-...{% endif %}"></label>
+      </div>
+      <div class="border rounded-lg p-3 prov-card">
+        <label class="flex items-center justify-between mb-2 cursor-pointer"><span class="font-semibold text-sm">⚡ Google (Gemini)</span><input type="checkbox" name="prov_gemini" class="prov-check" data-prov="gemini" {% if cfg.ai_provider=='gemini' %}checked{% endif %}></label>
+        <label class="block mb-2"><span class="text-xs text-slate-500">모델</span><input name="ai_gemini_model" value="{{ cfg.ai_gemini_model }}" class="input mt-1" list="gemini-models" placeholder="gemini-1.5-flash">
+          <datalist id="gemini-models"><option value="gemini-1.5-flash"></option><option value="gemini-2.0-flash"></option><option value="gemini-2.5-pro"></option></datalist></label>
+        <label class="block"><span class="text-xs text-slate-500 flex items-center gap-1"><span style="width:9px;height:9px;border-radius:50%;display:inline-block;background:{{ '#10B981' if key_set.gemini else '#EF4444' }};"></span>API 키 {% if key_set.gemini %}<span class="text-green-600">등록됨</span>{% else %}<span class="text-red-500">미등록</span>{% endif %}</span>
+          <input type="password" name="ai_gemini_key" class="input mt-1" autocomplete="off" placeholder="{% if key_set.gemini %}변경 시에만 입력{% else %}AIza...{% endif %}"></label>
+      </div>
+    </div>
+    <div class="text-xs text-slate-400 mt-2">🔒 API 키는 서버 DB에만 저장되며 화면에 다시 표시되지 않습니다.</div>
+  </form>
+{% endif %}
+
+{# ==================== 연동 (세금계산서·알림·메일) ==================== #}
+{% if page == 'integrations' %}
+  {% macro dot(on) %}<span style="width:9px;height:9px;border-radius:50%;display:inline-block;background:{{ '#10B981' if on else '#EF4444' }};"></span>{% endmacro %}
+  <form method="post" action="/settings/save" class="card" id="integrations" style="border-left:4px solid var(--inviz-purple);">
+    <input type="hidden" name="_section" value="integrations">
+    <div class="flex items-center justify-between mb-3"><h3 class="font-semibold" style="color: var(--inviz-purple);">🧾 국세청·세금계산서 / 🔔 알림 연동</h3><button class="btn btn-accent text-xs px-3 py-1">💾 저장</button></div>
+
+    <div class="mb-4 p-3 rounded bg-purple-50/40 border border-purple-100">
+      <div class="text-sm font-semibold mb-2" style="color:var(--inviz-purple);">① 국세청 홈택스 / 전자세금계산서</div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="block"><span class="text-xs text-slate-500">사업자등록번호(우리)</span><input name="tax_corp_no" class="input mt-1" value="{{ cfg.tax_corp_no }}" placeholder="000-00-00000"></label>
+        <label class="block"><span class="text-xs text-slate-500">상호</span><input name="tax_corp_name" class="input mt-1" value="{{ cfg.tax_corp_name }}"></label>
+        <label class="block"><span class="text-xs text-slate-500">대표자</span><input name="tax_ceo" class="input mt-1" value="{{ cfg.tax_ceo }}"></label>
+        <label class="block"><span class="text-xs text-slate-500">발행 담당자/회신 이메일</span><input name="tax_issuer_email" class="input mt-1" value="{{ cfg.tax_issuer_email }}" placeholder="tax@inviz.co.kr"></label>
+        <label class="block"><span class="text-xs text-slate-500">발행 연동 방식</span>
+          <select name="tax_asp" class="input mt-1"><option value="manual" {{ 'selected' if cfg.tax_asp=='manual' else '' }}>수동/기록 (홈택스 바로가기)</option><option value="popbill" {{ 'selected' if cfg.tax_asp=='popbill' else '' }}>팝빌 자동 발행</option><option value="barobill" {{ 'selected' if cfg.tax_asp=='barobill' else '' }}>바로빌 자동 발행</option></select></label>
+        <label class="block"><span class="text-xs text-slate-500">{{ dot(key_set.popbill) }} 팝빌 LinkID / SecretKey</span>
+          <input name="tax_popbill_linkid" class="input mt-1" value="{{ cfg.tax_popbill_linkid }}" placeholder="LinkID">
+          <input name="tax_popbill_secret" type="password" class="input mt-1" placeholder="{% if key_set.popbill %}변경 시에만 입력{% else %}SecretKey{% endif %}"></label>
+        <label class="block"><span class="text-xs text-slate-500">{{ dot(key_set.barobill) }} 바로빌 인증키</span>
+          <input name="tax_barobill_certkey" type="password" class="input mt-1" placeholder="{% if key_set.barobill %}변경 시에만 입력{% else %}CERTKEY{% endif %}"></label>
+      </div>
+      <div class="text-xs mt-2 {{ 'text-green-600' if integ.asp else 'text-amber-600' }}">{% if integ.asp %}✅ ASP 자동 발행 준비됨{% else %}⚠️ 현재 <b>수동/기록</b> 모드 — 실제 발행은 <a href="https://www.hometax.go.kr" target="_blank" class="underline">홈택스</a>에서. (팝빌/바로빌 키 입력 시 자동){% endif %}</div>
+    </div>
+
+    <div class="mb-4 p-3 rounded bg-yellow-50/50 border border-yellow-200">
+      <div class="text-sm font-semibold mb-2 flex items-center gap-2">💬 ② 카카오톡 알림 (나에게 보내기) {{ dot(integ.kakao) }}</div>
+      <label class="inline-flex items-center gap-2 mb-2 text-sm"><input type="checkbox" name="kakao_enabled" value="1" {{ 'checked' if cfg.kakao_enabled=='1' else '' }}> 카카오 알림 사용</label>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <label class="block"><span class="text-xs text-slate-500">REST API 키</span><input name="kakao_rest_key" type="password" class="input mt-1" placeholder="{% if cfg.kakao_rest_key %}변경 시에만 입력{% else %}카카오 REST API 키{% endif %}"></label>
+        <label class="block"><span class="text-xs text-slate-500">{{ dot(key_set.kakao) }} Access Token</span><input name="kakao_access_token" type="password" class="input mt-1" placeholder="{% if key_set.kakao %}변경 시에만 입력{% else %}access_token{% endif %}"></label>
+        <label class="block"><span class="text-xs text-slate-500">Refresh Token</span><input name="kakao_refresh_token" type="password" class="input mt-1" placeholder="{% if cfg.kakao_refresh_token %}변경 시에만 입력{% else %}refresh_token{% endif %}"></label>
+      </div>
+    </div>
+
+    <div class="mb-4 p-3 rounded bg-sky-50/60 border border-sky-200">
+      <div class="text-sm font-semibold mb-2 flex items-center gap-2">✈️ ②-2 텔레그램 알림 (봇) {{ dot(integ.telegram) }}</div>
+      <label class="inline-flex items-center gap-2 mb-2 text-sm"><input type="checkbox" name="telegram_enabled" value="1" {{ 'checked' if cfg.telegram_enabled=='1' else '' }}> 텔레그램 알림 사용</label>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <label class="block"><span class="text-xs text-slate-500">{{ dot(key_set.telegram) }} 봇 토큰 (BotFather)</span><input name="telegram_bot_token" type="password" class="input mt-1" placeholder="{% if key_set.telegram %}변경 시에만 입력{% else %}123456:ABC-...{% endif %}"></label>
+        <label class="block"><span class="text-xs text-slate-500">내 Chat ID</span><input name="telegram_chat_id" class="input mt-1" value="{{ cfg.telegram_chat_id }}" placeholder="예) 123456789"></label>
+      </div>
+    </div>
+
+    <div class="p-3 rounded bg-slate-50 border border-slate-200">
+      <div class="text-sm font-semibold mb-2">📧 ③ 이메일 (발송 SMTP {{ dot(integ.mail_send) }} · 수신확인 IMAP {{ dot(integ.mail_recv) }})</div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <label class="block"><span class="text-xs text-slate-500">SMTP 서버</span><input name="mail_smtp_host" class="input mt-1" value="{{ cfg.mail_smtp_host }}" placeholder="smtp.gmail.com"></label>
+        <label class="block"><span class="text-xs text-slate-500">SMTP 포트</span><input name="mail_smtp_port" class="input mt-1" value="{{ cfg.mail_smtp_port }}" placeholder="587"></label>
+        <label class="block"><span class="text-xs text-slate-500">SMTP 계정</span><input name="mail_smtp_user" class="input mt-1" value="{{ cfg.mail_smtp_user }}"></label>
+        <label class="block"><span class="text-xs text-slate-500">{{ dot(key_set.smtp) }} SMTP 비밀번호</span><input name="mail_smtp_pass" type="password" class="input mt-1" placeholder="{% if key_set.smtp %}변경 시에만 입력{% else %}앱 비밀번호{% endif %}"></label>
+        <label class="block"><span class="text-xs text-slate-500">보내는 주소(From)</span><input name="mail_from" class="input mt-1" value="{{ cfg.mail_from }}"></label>
+        <label class="inline-flex items-center gap-2 text-sm mt-5"><input type="checkbox" name="mail_smtp_tls" value="1" {{ 'checked' if cfg.mail_smtp_tls=='1' else '' }}> STARTTLS</label>
+        <label class="block"><span class="text-xs text-slate-500">알림 받을 이메일</span><input name="mail_notify_to" class="input mt-1" value="{{ cfg.mail_notify_to }}" placeholder="me@inviz.co.kr"></label>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+        <label class="block"><span class="text-xs text-slate-500">IMAP 서버</span><input name="mail_imap_host" class="input mt-1" value="{{ cfg.mail_imap_host }}" placeholder="imap.gmail.com"></label>
+        <label class="block"><span class="text-xs text-slate-500">IMAP 포트</span><input name="mail_imap_port" class="input mt-1" value="{{ cfg.mail_imap_port }}" placeholder="993"></label>
+        <label class="block"><span class="text-xs text-slate-500">IMAP 계정</span><input name="mail_imap_user" class="input mt-1" value="{{ cfg.mail_imap_user }}"></label>
+        <label class="block"><span class="text-xs text-slate-500">{{ dot(key_set.imap) }} IMAP 비밀번호</span><input name="mail_imap_pass" type="password" class="input mt-1" placeholder="{% if key_set.imap %}변경 시에만 입력{% else %}앱 비밀번호{% endif %}"></label>
+        <label class="block"><span class="text-xs text-slate-500">수신확인 검색범위(일)</span><input name="mail_imap_days" class="input mt-1" value="{{ cfg.mail_imap_days }}" placeholder="7"></label>
+      </div>
+      <div class="text-xs text-slate-500 mt-2">급여명세서·매입 세금계산서 알림 등이 이 SMTP로 발송됩니다. (Gmail은 '앱 비밀번호' 사용)</div>
+    </div>
+  </form>
+{% endif %}
+
+{# ==================== 자가발전 / 학습 ==================== #}
+{% if page == 'selfdev' %}
+  <form method="post" action="/settings/save" class="card" id="self-dev" style="border-left:4px solid var(--inviz-orange);">
+    <input type="hidden" name="_section" value="selfdev">
+    <div class="flex items-center justify-between mb-1"><h3 class="font-semibold" style="color: var(--inviz-purple);">🛡 자가발전 / AI 학습</h3><button class="btn btn-accent text-xs px-3 py-1">💾 저장</button></div>
+    <p class="text-xs text-slate-500 mb-3">회사 자료를 스스로 학습·정리합니다. <b>자기학습은 보안을 위해 오직 오픈소스(Ollama/Llama) 모델만 사용</b>합니다.</p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block mb-3"><span class="text-xs text-slate-500">🧠 AI 학습 전용 모델 (오픈소스만)</span>
+          <select name="learning_model" class="select mt-1">
+            <option value="llama3.1:latest" {% if cfg.learning_model=='llama3.1:latest' %}selected{% endif %}>Llama 3.1 (8B)</option>
+            <option value="llama3.2:latest" {% if cfg.learning_model=='llama3.2:latest' %}selected{% endif %}>Llama 3.2 (3B)</option>
+            <option value="llama3:latest"   {% if cfg.learning_model=='llama3:latest'   %}selected{% endif %}>Llama 3</option>
+            <option value="gemma2:latest"   {% if cfg.learning_model=='gemma2:latest'   %}selected{% endif %}>Gemma 2</option>
+            <option value="qwen2.5:latest"  {% if cfg.learning_model=='qwen2.5:latest'  %}selected{% endif %}>Qwen 2.5</option>
+          </select></label>
+        <label class="flex items-center gap-2 mt-2"><input type="checkbox" name="learning_include_subfolders" value="1" {% if cfg.learning_include_subfolders=='1' %}checked{% endif %}><span class="text-sm text-slate-700">학습 대상 폴더의 <b>하위 폴더 모두 포함</b></span></label>
+      </div>
+      <div>
+        <label class="block mb-1"><span class="text-xs text-slate-500">📂 학습·확인 대상 폴더 경로</span>
+          <div class="flex gap-2 mt-1"><input name="learning_folder" id="learning_folder" value="{{ cfg.learning_folder }}" class="input" placeholder="비우면 기본 경영정보 폴더"><button type="button" class="btn btn-secondary whitespace-nowrap" onclick="openBrowse('learning_folder','replace')">📁 폴더 찾기</button></div></label>
+        {% if cfg.learning_folder %}<div class="text-xs mt-1 {% if learning_folder_exists %}text-green-700{% else %}text-amber-700{% endif %}">{% if learning_folder_exists %}✅ 저장됨: <code>{{ cfg.learning_folder }}</code>{% else %}⚠️ 경로 없음: <code>{{ cfg.learning_folder }}</code>{% endif %}</div>{% else %}<div class="text-xs text-slate-400 mt-1">기본 경영정보 폴더 사용 중</div>{% endif %}
+      </div>
+    </div>
+    <div class="mt-3">
+      <div class="flex items-center justify-between flex-wrap gap-2"><span class="text-xs text-slate-500">🗂 자가발전 공유 폴더·파일 경로 (한 줄에 하나씩)</span>
+        <div class="flex gap-2"><button type="button" class="btn btn-secondary" onclick="openBrowse('selfdev_paths','folder')">📁 폴더 찾기</button><button type="button" class="btn btn-secondary" onclick="openBrowse('selfdev_paths','file')">📄 파일 찾기</button></div></div>
+      <textarea name="selfdev_paths" id="selfdev_paths" rows="3" class="textarea mt-1" placeholder="예) C:\공유\회계자료">{{ cfg.selfdev_paths }}</textarea>
+      {% if selfdev_status %}<div class="mt-2 p-2 rounded bg-slate-50"><div class="text-xs font-semibold mb-1 text-slate-500">현재 저장된 경로 ({{ selfdev_status|length }})</div>
+        <div class="flex flex-wrap gap-2">{% for s in selfdev_status %}<span class="badge {% if s.exists %}badge-green{% else %}badge-orange{% endif %}" style="font-family:monospace; font-size:11px;">{% if s.exists %}✅{% else %}⚠️{% endif %} {{ s.path }}</span>{% endfor %}</div></div>{% endif %}
+    </div>
+  </form>
+{% endif %}
+
+{# ==================== 자동 실행 ==================== #}
+{% if page == 'schedule' %}
+  <div class="card" id="schedule" style="border-left:4px solid var(--inviz-purple);">
+    <h3 class="font-semibold mb-1" style="color: var(--inviz-purple);">⏰ 자동 실행 스케줄</h3>
+    <p class="text-xs text-slate-500 mb-3">동기화·학습·자가발전을 설정한 시간에 자동 실행합니다. {% if request.query_params.get('ran') %}<span class="text-green-700 font-semibold">▶ '{{ request.query_params.get('ran') }}' 즉시 실행 시작.</span>{% endif %}</p>
+    <form method="post" action="/settings/schedule">
+      <div class="overflow-x-auto"><table class="table">
+        <thead><tr><th>기능</th><th>자동</th><th>주기</th><th>시각</th><th>요일(매주)</th><th>일(매월)</th><th>최근 실행</th><th></th></tr></thead>
+        <tbody>
+          {% set tasks = [('sync','🔄 동기화','폴더 변경 → DB 반영'),('learning','📚 AI 학습','벡터 인덱싱(오픈소스)'),('selfdev','🛡 자가발전','백업→동기화→검증→학습')] %}
+          {% for key, label, desc in tasks %}
+          <tr>
+            <td><div class="font-semibold">{{ label }}</div><div class="text-xs text-slate-400">{{ desc }}</div></td>
+            <td><label class="flex items-center gap-1"><input type="checkbox" name="sched_{{ key }}_enabled" value="1" {% if cfg['sched_' ~ key ~ '_enabled']=='1' %}checked{% endif %}><span class="text-xs">사용</span></label></td>
+            <td><select name="sched_{{ key }}_freq" class="select sched-freq" style="min-width:90px;" onchange="syncSchedRow(this)"><option value="daily" {% if cfg['sched_' ~ key ~ '_freq']=='daily' %}selected{% endif %}>매일</option><option value="weekly" {% if cfg['sched_' ~ key ~ '_freq']=='weekly' %}selected{% endif %}>매주</option><option value="monthly" {% if cfg['sched_' ~ key ~ '_freq']=='monthly' %}selected{% endif %}>매월</option></select></td>
+            <td><input type="time" name="sched_{{ key }}_time" value="{{ cfg['sched_' ~ key ~ '_time'] }}" class="input" style="width:120px;"></td>
+            <td><select name="sched_{{ key }}_dow" class="select sched-dow" style="min-width:80px;"><option value="*" {% if cfg['sched_' ~ key ~ '_dow']|string=='*' %}selected{% endif %}>모두</option>{% set days = ['월','화','수','목','금','토','일'] %}{% for d in range(7) %}<option value="{{ d }}" {% if cfg['sched_' ~ key ~ '_dow']|string==d|string %}selected{% endif %}>{{ days[d] }}요일</option>{% endfor %}</select></td>
+            <td><select name="sched_{{ key }}_dom" class="select sched-dom" style="min-width:80px;"><option value="*" {% if cfg['sched_' ~ key ~ '_dom']|string=='*' %}selected{% endif %}>모두</option>{% for d in range(1, 32) %}<option value="{{ d }}" {% if cfg['sched_' ~ key ~ '_dom']|string==d|string %}selected{% endif %}>{{ d }}일</option>{% endfor %}<option value="last" {% if cfg['sched_' ~ key ~ '_dom']|string=='last' %}selected{% endif %}>말일</option></select></td>
+            <td class="text-xs">{% set done = cfg['sched_' ~ key ~ '_last_done'] %}{% set stat = cfg['sched_' ~ key ~ '_last_status'] %}{% if done %}<div class="text-slate-500">{{ done[:16].replace('T',' ') }}</div><div class="{% if stat=='성공' %}text-green-600{% else %}text-red-600{% endif %}">{{ stat or '-' }}</div>{% else %}<span class="text-slate-400">기록 없음</span>{% endif %}</td>
+            <td><button type="submit" formaction="/settings/schedule/run/{{ key }}" formmethod="post" class="btn btn-secondary text-xs px-2 py-1" onclick="return confirm('지금 \'{{ label }}\' 실행할까요?')">▶ 지금</button></td>
+          </tr>
+          {% endfor %}
+        </tbody></table></div>
+      <div class="flex justify-end mt-3"><button type="submit" class="btn btn-accent px-8">💾 스케줄 저장</button></div>
+    </form>
+  </div>
+{% endif %}
+
+{# ==================== 제품 관리 ==================== #}
+{% if page == 'products' %}
+  <div class="card" id="products">
+    <div class="flex items-center justify-between mb-2 flex-wrap gap-2"><h3 class="font-semibold" style="color: var(--inviz-purple);">📦 제품·상품 관리</h3><a href="/product-sales" class="btn btn-secondary text-xs">📊 제품별 매출 분석</a></div>
+    {% if request.query_params.get('prod_saved') %}<div class="text-xs text-green-700 mb-2">✓ 제품 정보가 저장되었습니다.</div>{% endif %}
+    {% if request.query_params.get('prod_err') %}<div class="text-xs text-red-600 mb-2">⚠️ {{ request.query_params.get('prod_err') }}</div>{% endif %}
+    <div class="overflow-x-auto"><table class="table">
+      <thead><tr><th>코드</th><th>제품명</th><th>구분</th><th>그룹</th><th class="w-24"></th></tr></thead>
+      <tbody>{% for pr in prod_rows %}<tr>
+        <td class="font-mono text-xs align-middle">{{ pr.code }}</td>
+        <td><input form="pf-{{ pr.code }}" name="name" value="{{ pr.name }}" class="input" style="min-width:200px;"></td>
+        <td><input form="pf-{{ pr.code }}" name="category" value="{{ pr.category or '' }}" class="input" style="width:90px;"></td>
+        <td><input form="pf-{{ pr.code }}" name="group" value="{{ pr.group or '' }}" class="input" style="width:110px;"></td>
+        <td class="whitespace-nowrap"><form id="pf-{{ pr.code }}" method="post" action="/settings/product/{{ pr.code }}" class="inline"><button class="btn btn-secondary text-xs px-2 py-1">저장</button></form><form method="post" action="/settings/product/{{ pr.code }}/delete" class="inline" onsubmit="return confirm('{{ pr.code }} 삭제?')"><button class="text-red-600 text-xs ml-1">삭제</button></form></td>
+      </tr>{% endfor %}</tbody></table></div>
+    <form method="post" action="/settings/product/add" class="flex items-end gap-2 mt-3 flex-wrap border-t pt-3">
+      <label class="block"><span class="text-xs text-slate-500">코드</span><input name="code" class="input mt-1" style="width:90px;" placeholder="P011"></label>
+      <label class="block flex-1"><span class="text-xs text-slate-500">제품명</span><input name="name" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">구분</span><input name="category" class="input mt-1" style="width:90px;"></label>
+      <label class="block"><span class="text-xs text-slate-500">그룹</span><input name="group" class="input mt-1" style="width:110px;"></label>
+      <button class="btn btn-accent">+ 제품 추가</button>
+    </form>
+  </div>
+{% endif %}
+
+{# ==================== 은행·카드 ==================== #}
+{% if page == 'banking' %}
+  {% set bq = request.query_params %}
+  {% if bq.get('acc_saved') or bq.get('card_saved') %}<div class="text-xs text-green-700 mb-2">✓ 저장되었습니다.</div>{% endif %}
+  {% if bq.get('acc_deleted') or bq.get('card_deleted') %}<div class="text-xs text-green-700 mb-2">✓ 삭제되었습니다.</div>{% endif %}
+  {% if bq.get('saved') %}<div class="text-xs text-green-700 mb-2">✓ 오픈뱅킹 설정이 저장되었습니다.</div>{% endif %}
+
+  <!-- 은행 계좌 등록 -->
+  <div class="card mb-4" id="bank-accounts">
+    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+      <h3 class="font-semibold" style="color: var(--inviz-purple);">🏦 은행 계좌 등록</h3>
+      <a href="/banking" class="btn btn-secondary text-xs">계좌 현황 보기</a>
+    </div>
+    <p class="text-xs text-slate-500 mb-2">각 은행·계좌를 등록하면 거래내역 업로드와 잔액 관리를 할 수 있습니다.</p>
+    <div class="overflow-x-auto"><table class="table">
+      <thead><tr><th>은행</th><th>별칭/용도</th><th>계좌번호</th><th>종류</th><th class="num">잔액</th><th>활성</th><th class="w-24"></th></tr></thead>
+      <tbody>{% for a in bank_accounts %}<tr>
+        <td><select form="af-{{ a.id }}" name="bank_name" class="select" style="width:110px;">{% for b in banks %}<option {% if a.bank_name==b %}selected{% endif %}>{{ b }}</option>{% endfor %}</select></td>
+        <td><input form="af-{{ a.id }}" name="account_alias" value="{{ a.account_alias or '' }}" class="input" style="min-width:120px;"></td>
+        <td><input form="af-{{ a.id }}" name="account_no" value="{{ a.account_no or '' }}" class="input" style="width:150px;"></td>
+        <td><select form="af-{{ a.id }}" name="account_type" class="select" style="width:90px;">{% for t in ['입출금','적금','외화','기타'] %}<option {% if a.account_type==t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></td>
+        <td><input form="af-{{ a.id }}" name="balance" value="{{ a.balance|round|int if a.balance else 0 }}" class="input num" style="width:120px;"></td>
+        <td><select form="af-{{ a.id }}" name="active" class="select" style="width:70px;"><option value="Y" {% if a.active=='Y' %}selected{% endif %}>활성</option><option value="N" {% if a.active!='Y' %}selected{% endif %}>비활성</option></select></td>
+        <td class="whitespace-nowrap">
+          <form id="af-{{ a.id }}" method="post" action="/banking/account/save" class="inline"><input type="hidden" name="id" value="{{ a.id }}"><input type="hidden" name="back" value="/settings/banking"><button class="btn btn-secondary text-xs px-2 py-1">저장</button></form>
+          <form method="post" action="/banking/account/{{ a.id }}/delete" class="inline" onsubmit="return confirm('계좌와 거래내역을 함께 삭제할까요?')"><input type="hidden" name="back" value="/settings/banking"><button class="text-red-600 text-xs ml-1">삭제</button></form>
+        </td>
+      </tr>{% endfor %}
+      {% if not bank_accounts %}<tr><td colspan="7" class="text-center text-slate-400 py-4">등록된 계좌가 없습니다. 아래에서 추가하세요.</td></tr>{% endif %}
+      </tbody></table></div>
+    <form method="post" action="/banking/account/save" class="flex items-end gap-2 mt-3 flex-wrap border-t pt-3">
+      <input type="hidden" name="back" value="/settings/banking">
+      <label class="block"><span class="text-xs text-slate-500">은행</span><select name="bank_name" class="select mt-1" style="width:110px;">{% for b in banks %}<option>{{ b }}</option>{% endfor %}</select></label>
+      <label class="block flex-1"><span class="text-xs text-slate-500">별칭/용도</span><input name="account_alias" class="input mt-1" placeholder="주거래·급여·세금 등"></label>
+      <label class="block"><span class="text-xs text-slate-500">계좌번호</span><input name="account_no" class="input mt-1" style="width:150px;"></label>
+      <label class="block"><span class="text-xs text-slate-500">종류</span><select name="account_type" class="select mt-1" style="width:90px;">{% for t in ['입출금','적금','외화','기타'] %}<option>{{ t }}</option>{% endfor %}</select></label>
+      <label class="block"><span class="text-xs text-slate-500">잔액</span><input name="balance" class="input mt-1 num" style="width:120px;" placeholder="0"></label>
+      <button class="btn btn-accent">+ 계좌 추가</button>
+    </form>
+  </div>
+
+  <!-- 카드 등록 -->
+  <div class="card mb-4" id="cards">
+    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+      <h3 class="font-semibold" style="color: var(--inviz-purple);">💳 카드 등록 (한도·출금일)</h3>
+      <a href="/banking/cards" class="btn btn-secondary text-xs">카드 현황 보기</a>
+    </div>
+    <div class="overflow-x-auto"><table class="table">
+      <thead><tr><th>카드명</th><th>발급사</th><th>끝4자리</th><th>구분</th><th class="num">한도</th><th>출금일</th><th>결제계좌</th><th>활성</th><th class="w-24"></th></tr></thead>
+      <tbody>{% for c in cards %}<tr>
+        <td><input form="cf-{{ c.id }}" name="card_name" value="{{ c.card_name }}" class="input" style="min-width:120px;"></td>
+        <td><select form="cf-{{ c.id }}" name="issuer" class="select" style="width:100px;">{% for i in card_issuers %}<option {% if c.issuer==i %}selected{% endif %}>{{ i }}</option>{% endfor %}</select></td>
+        <td><input form="cf-{{ c.id }}" name="card_no_last4" value="{{ c.card_no_last4 or '' }}" class="input" style="width:60px;"></td>
+        <td><select form="cf-{{ c.id }}" name="card_type" class="select" style="width:70px;">{% for t in ['신용','체크'] %}<option {% if c.card_type==t %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></td>
+        <td><input form="cf-{{ c.id }}" name="credit_limit" value="{{ c.credit_limit|round|int if c.credit_limit else 0 }}" class="input num" style="width:110px;"></td>
+        <td><input form="cf-{{ c.id }}" name="billing_day" type="number" min="1" max="31" value="{{ c.billing_day or '' }}" class="input" style="width:60px;"></td>
+        <td><select form="cf-{{ c.id }}" name="payment_account_id" class="select" style="width:140px;"><option value="">-</option>{% for a in bank_accounts %}<option value="{{ a.id }}" {% if c.payment_account_id==a.id %}selected{% endif %}>{{ acc_name_map.get(a.id, a.bank_name) }}</option>{% endfor %}</select></td>
+        <td><select form="cf-{{ c.id }}" name="active" class="select" style="width:70px;"><option value="Y" {% if c.active=='Y' %}selected{% endif %}>활성</option><option value="N" {% if c.active!='Y' %}selected{% endif %}>비활성</option></select></td>
+        <td class="whitespace-nowrap">
+          <form id="cf-{{ c.id }}" method="post" action="/banking/card/save" class="inline"><input type="hidden" name="id" value="{{ c.id }}"><input type="hidden" name="back" value="/settings/banking"><button class="btn btn-secondary text-xs px-2 py-1">저장</button></form>
+          <form method="post" action="/banking/card/{{ c.id }}/delete" class="inline" onsubmit="return confirm('카드와 이용내역을 함께 삭제할까요?')"><input type="hidden" name="back" value="/settings/banking"><button class="text-red-600 text-xs ml-1">삭제</button></form>
+        </td>
+      </tr>{% endfor %}
+      {% if not cards %}<tr><td colspan="9" class="text-center text-slate-400 py-4">등록된 카드가 없습니다. 아래에서 추가하세요.</td></tr>{% endif %}
+      </tbody></table></div>
+    <form method="post" action="/banking/card/save" class="flex items-end gap-2 mt-3 flex-wrap border-t pt-3">
+      <input type="hidden" name="back" value="/settings/banking">
+      <label class="block flex-1"><span class="text-xs text-slate-500">카드명</span><input name="card_name" class="input mt-1" placeholder="법인 우리카드"></label>
+      <label class="block"><span class="text-xs text-slate-500">발급사</span><select name="issuer" class="select mt-1" style="width:100px;">{% for i in card_issuers %}<option>{{ i }}</option>{% endfor %}</select></label>
+      <label class="block"><span class="text-xs text-slate-500">끝4자리</span><input name="card_no_last4" class="input mt-1" style="width:60px;"></label>
+      <label class="block"><span class="text-xs text-slate-500">한도</span><input name="credit_limit" class="input mt-1 num" style="width:110px;" placeholder="0"></label>
+      <label class="block"><span class="text-xs text-slate-500">출금일</span><input name="billing_day" type="number" min="1" max="31" class="input mt-1" style="width:60px;" placeholder="25"></label>
+      <label class="block"><span class="text-xs text-slate-500">결제계좌</span><select name="payment_account_id" class="select mt-1" style="width:140px;"><option value="">-</option>{% for a in bank_accounts %}<option value="{{ a.id }}">{{ acc_name_map.get(a.id, a.bank_name) }}</option>{% endfor %}</select></label>
+      <button class="btn btn-accent">+ 카드 추가</button>
+    </form>
+  </div>
+
+  <!-- 오픈뱅킹(기관 API) 연동 — 준비 -->
+  <div class="card" id="openbank">
+    <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">🔗 오픈뱅킹 API 연동 (선택 · 준비)</h3>
+    <p class="text-xs text-slate-500 mb-3">금융결제원 오픈뱅킹 <b>기관</b> 등록 후 발급받은 API 정보를 입력하면 자동 잔액·거래 조회를 활성화할 수 있습니다. (개인 공동인증서·로그인 정보는 입력하지 않습니다.) 미입력 시에는 엑셀/CSV 업로드로 관리합니다.</p>
+    <form method="post" action="/settings/save" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <input type="hidden" name="_section" value="openbank">
+      <label class="flex items-center gap-2 md:col-span-2"><input type="checkbox" name="openbank_enabled" {% if cfg.get('openbank_enabled')=='1' %}checked{% endif %}> <span class="text-sm">오픈뱅킹 API 사용</span></label>
+      <label class="block"><span class="text-xs text-slate-500">기관코드(이용기관)</span><input name="openbank_org_code" value="{{ cfg.get('openbank_org_code','') }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">API Base URL</span><input name="openbank_api_base" value="{{ cfg.get('openbank_api_base','') }}" class="input mt-1" placeholder="https://openapi.openbanking.or.kr"></label>
+      <label class="block"><span class="text-xs text-slate-500">Client ID</span><input name="openbank_client_id" value="{{ cfg.get('openbank_client_id','') }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">Client Secret {% if cfg.get('openbank_client_secret') %}<span class="text-green-600">🟢 등록됨</span>{% endif %}</span><input name="openbank_client_secret" type="password" class="input mt-1" placeholder="{{ '변경 시에만 입력' if cfg.get('openbank_client_secret') else '' }}"></label>
+      <div class="md:col-span-2 flex justify-end"><button class="btn btn-accent px-8">💾 저장</button></div>
+    </form>
+  </div>
+{% endif %}
+
+{# ==================== 급여 요율 ==================== #}
+{% if page == 'payroll' %}
+  {% if request.query_params.get('saved') %}<div class="text-xs text-green-700 mb-2">✓ 급여 요율이 저장되었습니다. 이후 등록·자동계산에 적용됩니다.</div>{% endif %}
+  <div class="card mb-4" id="pay-rates">
+    <h3 class="font-semibold mb-1" style="color: var(--inviz-purple);">🧮 급여 4대보험 요율 / 상한</h3>
+    <p class="text-xs text-slate-500 mb-3">급여 등록 시 <b>직원 기본급 기준</b>으로 자동 계산되는 근로자 부담 요율입니다. 연도별 고시 요율·상한이 바뀌면 여기서 수정하세요. (소득세는 국세청 간이세액표 기준이라 등록 화면에서 직접 입력)</p>
+    <form method="post" action="/settings/save" class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+      <input type="hidden" name="_section" value="payroll">
+
+      <label class="block"><span class="text-xs text-slate-500">국민연금 (%) <span class="text-slate-400">기본 {{ pay_rate_defaults.get('pension') }}</span></span>
+        <input name="pay_rate_pension" type="number" step="0.001" value="{{ pay_rates.get('pension') }}" class="input mt-1 num"></label>
+      <label class="block"><span class="text-xs text-slate-500">국민연금 기준소득월액 <b>상한</b> (원) <span class="text-slate-400">기본 {{ pay_rate_defaults.get('pension_cap')|int }}</span></span>
+        <input name="pay_rate_pension_cap" type="number" step="1000" value="{{ pay_rates.get('pension_cap')|int }}" class="input mt-1 num"></label>
+
+      <label class="block"><span class="text-xs text-slate-500">건강보험 (%) <span class="text-slate-400">기본 {{ pay_rate_defaults.get('health') }}</span></span>
+        <input name="pay_rate_health" type="number" step="0.001" value="{{ pay_rates.get('health') }}" class="input mt-1 num"></label>
+      <label class="block"><span class="text-xs text-slate-500">국민연금 기준소득월액 <b>하한</b> (원) <span class="text-slate-400">기본 {{ pay_rate_defaults.get('pension_floor')|int }}</span></span>
+        <input name="pay_rate_pension_floor" type="number" step="1000" value="{{ pay_rates.get('pension_floor')|int }}" class="input mt-1 num"></label>
+
+      <label class="block"><span class="text-xs text-slate-500">장기요양보험 (%) <span class="text-slate-400">건강보험료의 % · 기본 {{ pay_rate_defaults.get('longterm') }}</span></span>
+        <input name="pay_rate_longterm" type="number" step="0.001" value="{{ pay_rates.get('longterm') }}" class="input mt-1 num"></label>
+      <label class="block"><span class="text-xs text-slate-500">식대 비과세 한도 (원/월) <span class="text-slate-400">기본 {{ pay_rate_defaults.get('meal_taxfree')|int }}</span></span>
+        <input name="pay_rate_meal_taxfree" type="number" step="10000" value="{{ pay_rates.get('meal_taxfree')|int }}" class="input mt-1 num"></label>
+
+      <label class="block"><span class="text-xs text-slate-500">고용보험 — 근로자 (%) <span class="text-slate-400">기본 {{ pay_rate_defaults.get('employment') }}</span></span>
+        <input name="pay_rate_employment" type="number" step="0.001" value="{{ pay_rates.get('employment') }}" class="input mt-1 num"></label>
+      <label class="block"><span class="text-xs text-slate-500">지방소득세 (%) <span class="text-slate-400">소득세의 % · 기본 {{ pay_rate_defaults.get('local_tax') }}</span></span>
+        <input name="pay_rate_local_tax" type="number" step="0.1" value="{{ pay_rates.get('local_tax') }}" class="input mt-1 num"></label>
+
+      <label class="block"><span class="text-xs text-slate-500">고용보험 — 회사 (%) <span class="text-slate-400">실업급여+고용안정 · 기본 {{ pay_rate_defaults.get('emp_employment') }}</span></span>
+        <input name="pay_rate_emp_employment" type="number" step="0.001" value="{{ pay_rates.get('emp_employment') }}" class="input mt-1 num"></label>
+      <label class="block"><span class="text-xs text-slate-500">산재보험 — 회사 (%) <span class="text-slate-400">업종별 상이 · 기본 {{ pay_rate_defaults.get('accident') }}</span></span>
+        <input name="pay_rate_accident" type="number" step="0.001" value="{{ pay_rates.get('accident') }}" class="input mt-1 num"></label>
+
+      <div class="md:col-span-2 mt-2 p-3 rounded bg-slate-50 text-xs text-slate-600 leading-relaxed">
+        <b>계산식</b> — 보수월액 = 지급계 − 식대(비과세 한도까지)<br>
+        · 국민연금 = min(max(보수월액, 하한), 상한) × 국민연금% <span class="text-slate-400">(국민연금 미가입 직원은 0)</span><br>
+        · 건강보험 = 보수월액 × 건강보험% · 장기요양 = 건강보험료 × 장기요양% · 고용보험 = 보수월액 × 고용보험%<br>
+        · 지방소득세 = 소득세 × 지방소득세% · 모두 원단위 절사
+      </div>
+      <div class="md:col-span-2 flex justify-end gap-2">
+        <button type="submit" formaction="/settings/payroll/reset" formnovalidate class="btn btn-secondary" onclick="return confirm('기본 요율로 되돌릴까요?')">기본값으로 초기화</button>
+        <button class="btn btn-accent px-8">💾 요율 저장</button>
+      </div>
+    </form>
+    <div class="text-xs text-slate-400 mt-3">참고(2026년 변경 시 예): 국민연금 상한 약 6,720,000원으로 올리면 첨부 명세서의 국민연금 302,570원과 일치합니다.</div>
+  </div>
+{% endif %}
+
+{# ==================== 메뉴 순서 ==================== #}
+{% if page == 'menu' %}
+  <div class="card" id="nav-order">
+    <div class="flex items-center justify-between mb-3"><h3 class="font-semibold" style="color: var(--inviz-purple);">🧭 메뉴 위치 / 순서</h3><form method="post" action="/settings/nav-order/reset"><button class="btn btn-secondary">기본 순서로 초기화</button></form></div>
+    <p class="text-xs text-slate-500 mb-3">▲▼ 버튼으로 좌측 사이드바 메뉴의 표시 순서를 조정하세요.</p>
+    <form method="post" action="/settings/nav-order" id="navOrderForm" onsubmit="return collectNavOrder()">
+      <input type="hidden" name="order" id="navOrderInput">
+      <ul id="navOrderList" class="space-y-1" style="max-width:520px;">{% for it in nav_items() %}<li data-key="{{ it.key }}" class="flex items-center justify-between border rounded px-3 py-2 bg-white"><span class="text-sm"><span class="mr-2">{{ it.icon }}</span>{{ it.label }}</span><span class="flex gap-1"><button type="button" class="btn btn-secondary px-2 py-1" onclick="moveNav(this,-1)">▲</button><button type="button" class="btn btn-secondary px-2 py-1" onclick="moveNav(this,1)">▼</button></span></li>{% endfor %}</ul>
+      <div class="flex justify-end mt-3"><button type="submit" class="btn btn-accent px-8">💾 메뉴 순서 저장</button></div>
+    </form>
+  </div>
+{% endif %}
+
+{# ==================== 계정·보안·접속 ==================== #}
+{% if page == 'account' %}
+  <div class="card mb-4" id="network">
+    <h3 class="font-semibold mb-2" style="color: var(--inviz-purple);">🌐 웹 접속 (네트워크)</h3>
+    <p class="text-xs text-slate-500 mb-3">같은 네트워크의 다른 PC·스마트폰에서 아래 주소로 접속하세요. 서버가 켜져 있어야 합니다.</p>
+    {% if net_ips %}<div class="space-y-2">{% for ip in net_ips %}<div class="flex items-center gap-2 flex-wrap"><a href="http://{{ ip }}:8000" target="_blank" class="badge badge-purple" style="font-family:monospace; font-size:13px; padding:6px 10px;">http://{{ ip }}:8000</a><button type="button" class="btn btn-secondary text-xs px-2 py-1" onclick="navigator.clipboard.writeText('http://{{ ip }}:8000'); this.textContent='✓ 복사됨';">📋 복사</button></div>{% endfor %}</div>{% else %}<div class="text-sm text-slate-400">네트워크 주소를 확인할 수 없습니다.</div>{% endif %}
+    <div class="text-xs text-slate-400 mt-3">※ 접속이 안 되면 Windows 방화벽에서 <b>8000 포트</b>를 허용하세요.</div>
+  </div>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="card">
+      <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">🔐 공통 비밀번호 변경</h3>
+      <form method="post" action="/settings/password" class="space-y-3">
+        <label class="block"><span class="text-xs text-slate-500">현재 비밀번호</span><input type="password" name="current" class="input mt-1" autocomplete="current-password" placeholder="{% if pw_is_custom %}현재 비밀번호{% else %}최초 설정 시 비워두거나 기본 비번{% endif %}"></label>
+        <div class="grid grid-cols-2 gap-2"><label class="block"><span class="text-xs text-slate-500">새 비밀번호</span><input type="password" name="new1" required class="input mt-1"></label><label class="block"><span class="text-xs text-slate-500">새 비밀번호 확인</span><input type="password" name="new2" required class="input mt-1"></label></div>
+        <div class="flex justify-end"><button class="btn btn-primary">비밀번호 변경</button></div>
+      </form>
+      <div class="text-xs text-slate-400 mt-2">{% if pw_is_custom %}사용자 지정 비밀번호 설정됨.{% else %}환경변수 기본 비밀번호 사용 중.{% endif %}</div>
+    </div>
+    <div class="card">
+      <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">👥 추가 사용자 (ID/PW)</h3>
+      <form method="post" action="/settings/user/add" class="flex items-end gap-2 mb-3"><label class="block flex-1"><span class="text-xs text-slate-500">아이디</span><input name="username" required class="input mt-1"></label><label class="block flex-1"><span class="text-xs text-slate-500">비밀번호</span><input type="password" name="password" required class="input mt-1"></label><button class="btn btn-primary">추가</button></form>
+      {% if users %}<table class="table"><thead><tr><th>아이디</th><th class="w-16"></th></tr></thead><tbody>{% for u in users %}<tr><td class="font-medium">{{ u.username }}</td><td><form method="post" action="/settings/user/remove" onsubmit="return confirm('삭제?')"><input type="hidden" name="username" value="{{ u.username }}"><button class="text-red-600 text-xs">삭제</button></form></td></tr>{% endfor %}</tbody></table>{% else %}<div class="text-xs text-slate-400">등록된 추가 사용자가 없습니다.</div>{% endif %}
+    </div>
+  </div>
+{% endif %}
+
+{# ==================== 활동 로그 ==================== #}
+{% if page == 'logs' %}
+  {% set dlqs = 'log_category=' ~ (log_category or '') ~ '&log_from=' ~ (log_from or '') ~ '&log_to=' ~ (log_to or '') %}
+  <div class="card" id="logs">
+    <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+      <h3 class="font-semibold" style="color: var(--inviz-purple);">🧾 활동 로그 <span class="text-xs font-normal text-slate-400">(접속·기능·이벤트 전체 · 총 {{ log_total|default(0) }}건)</span></h3>
+      <div class="flex gap-2"><a href="/settings/logs/download.xlsx?{{ dlqs }}" class="btn btn-secondary text-xs">📊 Excel</a><a href="/settings/logs/download.txt?{{ dlqs }}" class="btn btn-secondary text-xs">📄 TXT</a></div>
+    </div>
+    <form method="get" action="/settings/logs" class="flex items-end gap-2 mb-3 flex-wrap">
+      <label class="block"><span class="text-xs text-slate-500">항목</span><select name="log_category" class="select mt-1" style="min-width:120px;"><option value="">전체</option>{% for c in log_categories %}<option value="{{ c }}" {% if log_category==c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+      <label class="block"><span class="text-xs text-slate-500">시작일</span><input type="date" name="log_from" value="{{ log_from }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">종료일</span><input type="date" name="log_to" value="{{ log_to }}" class="input mt-1"></label>
+      <label class="block"><span class="text-xs text-slate-500">표시 건수</span><select name="log_limit" class="select mt-1" style="width:100px;">{% for n in [50,100,200,500,1000] %}<option value="{{ n }}" {% if log_limit==n %}selected{% endif %}>{{ n }}</option>{% endfor %}</select></label>
+      <button class="btn btn-primary">🔍 조회</button>
+      <a href="/settings/logs" class="btn btn-secondary">초기화</a>
+    </form>
+    <div class="overflow-x-auto" style="max-height:520px; overflow-y:auto;">
+      <table class="table text-xs">
+        <thead class="sticky top-0"><tr><th>일시 (날짜·시간)</th><th>항목</th><th>동작</th><th class="num">상태</th><th>IP</th><th class="num">소요</th></tr></thead>
+        <tbody>{% for lg in logs %}<tr>
+          <td class="whitespace-nowrap text-slate-500">{{ lg.ts.strftime('%Y-%m-%d %H:%M:%S') if lg.ts else '' }}</td>
+          <td><span class="badge badge-purple">{{ lg.category or '-' }}</span></td>
+          <td class="text-slate-600">{{ lg.action }}</td>
+          <td class="num {% if lg.status_code and lg.status_code >= 400 %}text-red-600{% else %}text-slate-400{% endif %}">{{ lg.status_code or '' }}</td>
+          <td class="text-slate-400">{{ lg.client_ip or '' }}</td>
+          <td class="num text-slate-400">{{ lg.duration_ms or '' }}{% if lg.duration_ms %}ms{% endif %}</td>
+        </tr>{% endfor %}{% if not logs %}<tr><td colspan="6" class="text-center text-slate-400 py-6">로그가 없습니다.</td></tr>{% endif %}</tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+
+  </div><!-- /set-content -->
+</div><!-- /set-shell -->
+
+<!-- 폴더 탐색기 모달 -->
+<div id="browseModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center" style="display:none;">
+  <div class="bg-white rounded-lg shadow-2xl flex flex-col" style="width:640px; max-width:94vw; max-height:80vh;">
+    <div class="brand-bar text-white p-3 flex items-center justify-between flex-shrink-0 rounded-t-lg"><div class="font-bold text-sm">📁 폴더·파일 선택</div><button type="button" onclick="closeBrowse()" class="text-white text-2xl leading-none px-2 hover:opacity-70">×</button></div>
+    <div class="px-3 py-2 border-b bg-slate-50 flex items-center gap-2 flex-shrink-0"><button type="button" id="browseUp" class="btn btn-secondary px-2 py-1" onclick="browseGo(window.__browseParent)">⬆ 상위</button><input id="browseCwd" class="input text-xs flex-1" readonly></div>
+    <div id="browseList" class="overflow-y-auto p-2" style="flex:1; min-height:240px;"></div>
+    <div class="p-3 border-t flex items-center justify-between flex-shrink-0"><div class="text-xs text-slate-500" id="browseHint">폴더를 클릭해 이동.</div><div class="flex gap-2"><button type="button" class="btn btn-secondary" onclick="closeBrowse()">취소</button><button type="button" class="btn btn-accent" id="browseAddFolderBtn" onclick="browseAddCurrent()">✓ 이 폴더 추가</button></div></div>
+  </div>
+</div>
+
+<script>
+  // 공급자 체크박스 — 라디오처럼 하나만
+  document.querySelectorAll('.prov-check').forEach(chk => chk.addEventListener('change', function(){ if (this.checked) document.querySelectorAll('.prov-check').forEach(o => { if (o !== this) o.checked = false; }); }));
+
+  // 메뉴 순서 ↑↓
+  function moveNav(btn, dir) { const li = btn.closest('li'); const list = document.getElementById('navOrderList'); if (dir === -1 && li.previousElementSibling) list.insertBefore(li, li.previousElementSibling); else if (dir === 1 && li.nextElementSibling) list.insertBefore(li.nextElementSibling, li); }
+  function collectNavOrder() { const keys = Array.from(document.querySelectorAll('#navOrderList li')).map(li => li.dataset.key); document.getElementById('navOrderInput').value = JSON.stringify(keys); return true; }
+
+  // 폴더 탐색기
+  let __browseTarget = null, __browseMode = null; window.__browseParent = '';
+  function openBrowse(target, mode) { __browseTarget = target; __browseMode = mode; document.getElementById('browseModal').style.display = 'flex'; document.getElementById('browseHint').textContent = (mode === 'file') ? '파일을 클릭하면 경로가 추가됩니다.' : '폴더를 클릭해 이동 후 "이 폴더 추가".'; document.getElementById('browseAddFolderBtn').style.display = (mode === 'file') ? 'none' : ''; browseStart(); }
+  function closeBrowse() { document.getElementById('browseModal').style.display = 'none'; }
+  async function browseStart() { try { const r = await fetch('/settings/browse?path='); const d = await r.json(); if (d && d.start_path) { browseGo(d.start_path); return; } } catch (e) {} browseGo(''); }
+  async function browseGo(path) { const box = document.getElementById('browseList'); box.innerHTML = '<div class="text-center text-slate-400 py-6">불러오는 중...</div>'; try { const r = await fetch('/settings/browse?path=' + encodeURIComponent(path || '')); const d = await r.json(); window.__browseParent = d.parent || ''; document.getElementById('browseCwd').value = d.cwd || '(시작 위치: 드라이브·바로가기)'; document.getElementById('browseUp').style.visibility = (d.parent || d.cwd) ? 'visible' : 'hidden'; if (d.error) { box.innerHTML = '<div class="text-center text-red-600 py-6">⚠️ ' + d.error + '</div>'; return; } let html = ''; (d.dirs || []).forEach(it => { html += `<div class="row" onclick="browseGo('${jsEsc(it.path)}')"><span>📁</span><span>${htmlEsc(it.name)}</span></div>`; }); if (__browseMode === 'file') (d.files || []).forEach(it => { html += `<div class="row" onclick="browsePick('${jsEsc(it.path)}')" style="color:var(--inviz-purple);"><span>📄</span><span>${htmlEsc(it.name)}</span></div>`; }); if (!html) html = '<div class="text-center text-slate-400 py-6">하위 폴더가 없습니다.</div>'; box.innerHTML = html; } catch (e) { box.innerHTML = '<div class="text-center text-red-600 py-6">⚠️ 탐색 실패: ' + e + '</div>'; } }
+  function browseAddCurrent() { const cwd = document.getElementById('browseCwd').value; if (!cwd || cwd.startsWith('(')) { alert('폴더로 이동한 뒤 추가하세요.'); return; } browsePick(cwd); }
+  function browsePick(path) { if (__browseTarget === 'selfdev_paths' && __browseMode !== 'replace') { const ta = document.getElementById('selfdev_paths'); const cur = ta.value.replace(/\s+$/, ''); ta.value = (cur ? cur + '\n' : '') + path; } else { const el = document.getElementById(__browseTarget); if (el) el.value = path; } closeBrowse(); }
+  function htmlEsc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function jsEsc(s){ return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+  // 스케줄: 주기에 따라 요일/일 활성·비활성
+  function syncSchedRow(freqSel){ const tr = freqSel.closest('tr'); if(!tr) return; const dow = tr.querySelector('.sched-dow'); const dom = tr.querySelector('.sched-dom'); const f = freqSel.value; if(dow){ dow.disabled = (f !== 'weekly'); dow.style.opacity = dow.disabled ? 0.35 : 1; } if(dom){ dom.disabled = (f !== 'monthly'); dom.style.opacity = dom.disabled ? 0.35 : 1; } }
+  document.querySelectorAll('select.sched-freq').forEach(s => syncSchedRow(s));
+  document.querySelector('form[action="/settings/schedule"]')?.addEventListener('submit', function(){ this.querySelectorAll('select[disabled]').forEach(el => el.disabled = false); });
+</script>
+{% endblock %}
