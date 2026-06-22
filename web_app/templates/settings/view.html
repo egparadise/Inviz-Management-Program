@@ -359,6 +359,418 @@
   </div>
 {% endif %}
 
+{# ==================== DB 탐색기 ==================== #}
+{% if page == 'db' %}
+<div class="card mb-3" style="border-left:4px solid var(--inviz-purple); background:#FAF5FF;">
+  <div class="flex items-start justify-between gap-3 flex-wrap">
+    <div>
+      <h3 class="font-bold mb-1" style="color: var(--inviz-purple);">🗄 DB 탐색기 (읽기 전용)</h3>
+      <p class="text-sm text-slate-600">
+        SQLite app.db의 전체 테이블·뷰·컬럼·인덱스·데이터를 안전하게 조회합니다.
+        비밀번호·API 키·토큰은 자동 마스킹됩니다.
+      </p>
+    </div>
+    <div class="flex flex-col gap-1">
+      <button type="button" onclick="launchExternalDB()" class="btn btn-accent text-sm whitespace-nowrap">
+        🚀 외부 DB GUI 열기 (sqlite-web)
+      </button>
+      <span id="ext-status" class="text-xs text-slate-500"></span>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-3">
+  <!-- 좌: 테이블 목록 -->
+  <div class="card lg:col-span-1" style="max-height:80vh; overflow-y:auto;">
+    <div class="flex items-center justify-between mb-2">
+      <h4 class="font-semibold text-sm" style="color: var(--inviz-purple);">📋 테이블 ({{ db_inventory|length }}개)</h4>
+      <input type="text" id="db-search" placeholder="🔍 이름"
+             class="text-xs border rounded px-2 py-0.5" style="width:80px;"
+             oninput="filterTables(this.value)">
+    </div>
+    {% set _last_cat = '' %}
+    {% for t in db_inventory %}
+      {% if t.category != _last_cat %}
+        {% if not loop.first %}</div>{% endif %}
+        <div class="mt-2 mb-1 text-xs font-bold" style="color:{{ t.color }};">
+          {{ t.icon }} {{ t.category }}
+        </div>
+        <div class="space-y-0.5">
+        {% set _last_cat = t.category %}
+      {% endif %}
+      <button type="button" data-table="{{ t.name }}" data-search="{{ t.name|lower }}"
+              onclick="selectTable('{{ t.name }}')"
+              class="db-table-row w-full text-left px-2 py-1 rounded hover:bg-purple-100 text-xs flex justify-between items-center"
+              style="border-left:3px solid {{ t.color }};">
+        <span class="font-mono">{{ t.name }}</span>
+        <span class="text-slate-500 ml-2">{{ '{:,}'.format(t.count) if t.count >= 0 else '?' }}</span>
+      </button>
+    {% endfor %}
+    </div>
+  </div>
+
+  <!-- 우: 선택된 테이블 정보 -->
+  <div class="lg:col-span-3 space-y-3" id="db-detail">
+    <div class="card text-center text-slate-400 py-12">
+      좌측에서 테이블을 선택하세요
+    </div>
+  </div>
+</div>
+
+<style>
+  .db-table-row.active { background:#EDE9FE; font-weight:600; }
+  .db-cell { max-width: 280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .db-cell:hover { white-space:normal; overflow:visible; }
+</style>
+
+<script>
+let currentTable = '';
+let currentSort = {col: '', dir: 'desc'};
+let currentOffset = 0;
+let currentQ = '';
+const PAGE_SIZE = 50;
+
+function filterTables(q) {
+  q = (q || '').toLowerCase();
+  document.querySelectorAll('.db-table-row').forEach(btn => {
+    btn.style.display = (!q || btn.dataset.search.includes(q)) ? '' : 'none';
+  });
+}
+
+async function launchExternalDB() {
+  const st = document.getElementById('ext-status');
+  st.innerHTML = '⏳ sqlite-web 시작 중...';
+  try {
+    const r = await fetch('/settings/db/launch-external', {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      // 큰 클릭 가능한 링크 + 사용자 직접 클릭 안내 (popup blocker 우회)
+      st.innerHTML =
+        '<div class="mt-1">'
+        + '<a href="' + d.url + '" target="_blank" rel="noopener noreferrer" '
+        + 'class="btn btn-primary text-sm" style="display:inline-block;">'
+        + '🌐 ' + d.url + ' 열기'
+        + '</a> '
+        + (d.readonly ? '<span class="text-xs text-green-700 ml-2">읽기 전용 ✓</span>' : '')
+        + ' <button onclick="stopExternalDB()" class="text-xs text-red-600 ml-2">중지</button>'
+        + '<div class="text-xs text-slate-500 mt-1">새 탭이 자동으로 열리지 않으면 위 링크를 클릭하세요.</div>'
+        + '</div>';
+      // 새 탭 자동 시도 (popup blocker가 차단할 수 있음)
+      try {
+        const w = window.open(d.url, '_blank', 'noopener,noreferrer');
+        if (!w || w.closed || typeof w.closed === 'undefined') {
+          console.warn('Popup blocked. User must click the link manually.');
+        }
+      } catch (_) {}
+    } else {
+      st.innerHTML = '<span class="text-red-700">❌ ' + (d.error || '실패') + '</span>';
+    }
+  } catch(e) {
+    st.innerHTML = '<span class="text-red-700">❌ 네트워크 오류: ' + e + '</span>';
+  }
+}
+async function stopExternalDB() {
+  await fetch('/settings/db/stop-external', {method:'POST'});
+  document.getElementById('ext-status').textContent = '⏹ 중지됨';
+}
+
+async function selectTable(name) {
+  currentTable = name;
+  currentOffset = 0;
+  currentSort = {col: '', dir: 'desc'};
+  currentQ = '';
+  document.querySelectorAll('.db-table-row').forEach(b => {
+    b.classList.toggle('active', b.dataset.table === name);
+  });
+  const detail = document.getElementById('db-detail');
+  // 즉시 시각적 피드백 — 사용자가 클릭이 동작했음을 확인
+  detail.innerHTML = '<div class="card"><div class="text-purple-700 font-semibold">⏳ ' + name + ' 로딩 중...</div></div>';
+  await renderTable();
+}
+
+async function renderTable() {
+  const detail = document.getElementById('db-detail');
+  detail.innerHTML = '<div class="card text-center text-slate-500 py-8">⏳ 로딩 중...</div>';
+  try {
+    const schemaResp = await fetch('/settings/db/api/schema?name=' + encodeURIComponent(currentTable));
+    if (!schemaResp.ok) throw new Error('schema HTTP ' + schemaResp.status);
+    const schemaR = await schemaResp.json();
+
+    const rowsResp = await fetch('/settings/db/api/rows?' + new URLSearchParams({
+      name: currentTable, limit: PAGE_SIZE, offset: currentOffset,
+      sort_col: currentSort.col, sort_dir: currentSort.dir, q: currentQ,
+    }));
+    if (!rowsResp.ok) throw new Error('rows HTTP ' + rowsResp.status);
+    const rowsR = await rowsResp.json();
+
+    renderSchema(schemaR);
+    renderRows(rowsR);
+  } catch(e) {
+    console.error('DB explorer error:', e);
+    detail.innerHTML = '<div class="card bg-red-50 border-red-300"><b class="text-red-700">❌ 오류:</b> ' + e.message + '<br><small class="text-slate-500">개발자 콘솔(F12)을 열어 상세 로그를 확인하세요.</small></div>';
+  }
+}
+
+function renderSchema(s) {
+  const detail = document.getElementById('db-detail');
+  const cols = (s.columns || []).map(c => `
+    <tr>
+      <td class="font-mono text-xs">${c.name}</td>
+      <td class="text-xs text-slate-500">${c.type || ''}</td>
+      <td class="text-xs">${c.pk ? '<span class="badge badge-purple">PK</span>' : ''}</td>
+      <td class="text-xs">${c.notnull ? '<span class="text-orange-700">NOT NULL</span>' : ''}</td>
+      <td class="text-xs text-slate-500">${c.default == null ? '' : c.default}</td>
+    </tr>`).join('');
+  const idx = (s.indexes || []).map(i =>
+    `<span class="badge badge-${i.unique ? 'purple' : 'gray'}">${i.name} (${i.columns.join(',')})${i.unique?' UNIQUE':''}</span>`
+  ).join(' ');
+  const fks = (s.foreign_keys || []).map(f =>
+    `<div class="text-xs"><b>${f.from}</b> → ${f.to_table}.${f.to_col}</div>`
+  ).join('');
+
+  detail.innerHTML = `
+    <div class="card">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-bold" style="color: var(--inviz-purple);">🧩 ${currentTable}</h3>
+        <span class="text-xs text-slate-500">${(s.columns||[]).length} 컬럼 · ${(s.indexes||[]).length} 인덱스 · ${(s.foreign_keys||[]).length} FK</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="table text-sm">
+          <thead><tr><th>컬럼</th><th>타입</th><th>키</th><th>제약</th><th>기본값</th></tr></thead>
+          <tbody>${cols}</tbody>
+        </table>
+      </div>
+      ${idx ? '<div class="mt-2 text-xs"><b>인덱스:</b> ' + idx + '</div>' : ''}
+      ${fks ? '<div class="mt-2"><b class="text-xs">외래키</b>' + fks + '</div>' : ''}
+    </div>
+    <div class="card" id="rows-card">로딩 중...</div>
+  `;
+}
+
+function fmt(v) {
+  if (v === null || v === undefined) return '<span class="text-slate-300">NULL</span>';
+  if (typeof v === 'number') return v.toLocaleString();
+  const s = String(v);
+  return s.length > 120 ? s.substring(0,120) + '...' : s;
+}
+
+function renderRows(d) {
+  const cols = d.columns || [];
+  const rows = d.rows || [];
+  const head = cols.map(c => {
+    const isSort = currentSort.col === c;
+    const arrow = isSort ? (currentSort.dir === 'asc' ? '▲' : '▼') : '⇅';
+    return `<th class="cursor-pointer hover:bg-purple-100" onclick="sortBy('${c}')">${c} <span class="text-xs opacity-60">${arrow}</span></th>`;
+  }).join('');
+  const body = rows.length === 0
+    ? `<tr><td colspan="${cols.length||1}" class="text-center text-slate-400 py-4">데이터 없음</td></tr>`
+    : rows.map(r => '<tr>' + cols.map(c =>
+        `<td class="db-cell text-xs">${fmt(r[c])}</td>`
+      ).join('') + '</tr>').join('');
+
+  const totalPages = Math.max(1, Math.ceil(d.total / PAGE_SIZE));
+  const curPage = Math.floor(currentOffset / PAGE_SIZE) + 1;
+
+  document.getElementById('rows-card').innerHTML = `
+    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+      <h4 class="font-semibold text-sm">📊 데이터 (${d.total.toLocaleString()}건)</h4>
+      <div class="flex items-center gap-2">
+        <input type="text" id="row-q" value="${currentQ.replace(/"/g,'&quot;')}"
+               placeholder="🔍 모든 컬럼 검색" class="text-xs border rounded px-2 py-1"
+               onkeydown="if(event.key==='Enter')searchRows(this.value)">
+        <button onclick="searchRows(document.getElementById('row-q').value)" class="btn btn-secondary text-xs">검색</button>
+        ${currentQ ? '<button onclick="clearRowSearch()" class="text-xs text-red-600">✕</button>' : ''}
+      </div>
+    </div>
+    <div class="overflow-x-auto max-h-96 overflow-y-auto">
+      <table class="table text-xs">
+        <thead class="sticky top-0 bg-purple-50">${head}</thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    <div class="flex items-center justify-between mt-2 text-xs">
+      <span>${curPage} / ${totalPages} 페이지</span>
+      <div class="flex gap-1">
+        ${currentOffset > 0 ? `<button onclick="pageMove(-${PAGE_SIZE})" class="btn btn-secondary text-xs">‹ 이전</button>` : ''}
+        ${currentOffset + PAGE_SIZE < d.total ? `<button onclick="pageMove(${PAGE_SIZE})" class="btn btn-secondary text-xs">다음 ›</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function sortBy(col) {
+  if (currentSort.col === col) {
+    currentSort.dir = (currentSort.dir === 'asc') ? 'desc' : 'asc';
+  } else {
+    currentSort = {col, dir: 'asc'};
+  }
+  currentOffset = 0;
+  renderTable();
+}
+
+function searchRows(q) {
+  currentQ = q || '';
+  currentOffset = 0;
+  renderTable();
+}
+
+function clearRowSearch() {
+  currentQ = '';
+  currentOffset = 0;
+  renderTable();
+}
+
+function pageMove(delta) {
+  currentOffset = Math.max(0, currentOffset + delta);
+  renderTable();
+}
+</script>
+{% endif %}
+
+
+{# ==================== 매출·매입 관리 (삭제) ==================== #}
+{% if page == 'txn-mgmt' %}
+{% set _msg = request.query_params.get('_msg', '') %}
+{% if _msg %}
+<div class="card mb-4 bg-green-50 border border-green-200 text-sm text-green-900">
+  {{ _msg }}
+</div>
+{% endif %}
+
+<div class="card mb-4" style="border-left: 4px solid #DC2626; background: #FEF2F2;">
+  <h3 class="font-bold text-red-800 mb-2 flex items-center gap-2">⚠️ 위험한 작업</h3>
+  <ul class="text-sm text-slate-700 space-y-1 ml-4 list-disc">
+    <li><b>되돌릴 수 없는</b> 데이터 삭제 작업입니다.</li>
+    <li>삭제 직전 <b>app.db가 자동 백업</b>됩니다 (위치: <code>web_app/db_backup/pre_txn_delete_*.db</code>).</li>
+    <li>실수했을 때는 백업 파일을 <code>app.db</code>로 복원하면 됩니다.</li>
+    <li>최종 삭제 단계에서 <b>DELETE</b> 문자를 정확히 입력해야 실행됩니다.</li>
+  </ul>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  {% for kind, label, icon, color in [('sale', '매출', '💰', '#7C3AED'), ('purchase', '매입', '📦', '#F97316')] %}
+  <div class="card" style="border-top: 4px solid {{ color }};">
+    <h3 class="font-bold text-lg mb-3" style="color: {{ color }};">{{ icon }} {{ label }} 데이터 삭제</h3>
+    <form method="post" action="/settings/txn-mgmt/delete" class="space-y-3" id="form-{{ kind }}">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <div class="grid grid-cols-2 gap-2">
+        <label class="block">
+          <span class="text-xs text-slate-500">연도</span>
+          <select name="year" class="select mt-1" onchange="updatePreview('{{ kind }}')">
+            <option value="">(전체)</option>
+            {% for y in range(2020, 2027) %}
+            <option value="{{ y }}">{{ y }}년</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">분기</span>
+          <select name="quarter" class="select mt-1" onchange="updatePreview('{{ kind }}')">
+            <option value="">(전체)</option>
+            <option value="Q1">Q1 (1~3월)</option>
+            <option value="Q2">Q2 (4~6월)</option>
+            <option value="Q3">Q3 (7~9월)</option>
+            <option value="Q4">Q4 (10~12월)</option>
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">월</span>
+          <select name="month" class="select mt-1" onchange="updatePreview('{{ kind }}')">
+            <option value="">(전체)</option>
+            {% for m in range(1, 13) %}<option value="{{ m }}">{{ m }}월</option>{% endfor %}
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-xs text-slate-500">일 (연/월 필수)</span>
+          <select name="day" class="select mt-1" onchange="updatePreview('{{ kind }}')">
+            <option value="">(전체)</option>
+            {% for d in range(1, 32) %}<option value="{{ d }}">{{ d }}일</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <div class="bg-slate-50 border rounded p-3 text-sm">
+        <div class="text-xs text-slate-500 mb-1">📊 삭제 영향 미리보기</div>
+        <div id="preview-{{ kind }}" class="font-mono text-sm">
+          위 조건을 선택하면 미리보기가 표시됩니다.
+        </div>
+      </div>
+
+      <div class="bg-red-50 border-2 border-red-300 rounded p-3">
+        <label class="block">
+          <span class="text-sm font-semibold text-red-800">
+            확인: 삭제하려면 아래에 <code class="bg-white px-2 py-0.5 rounded">DELETE</code> 를 정확히 입력
+          </span>
+          <input type="text" name="confirm" required
+                 placeholder="DELETE"
+                 autocomplete="off" autocapitalize="characters"
+                 class="input mt-2 font-mono">
+        </label>
+      </div>
+
+      <button type="submit"
+              class="btn w-full py-2 text-white font-bold"
+              style="background: linear-gradient(135deg, #DC2626 0%, #991B1B 100%);"
+              onclick="return confirmDelete('{{ kind }}', '{{ label }}')">
+        🗑 {{ label }} 데이터 삭제
+      </button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+async function updatePreview(kind) {
+  const form = document.getElementById('form-' + kind);
+  const fd = new FormData(form);
+  const params = new URLSearchParams();
+  params.append('kind', kind);
+  for (const key of ['year', 'quarter', 'month', 'day']) {
+    const v = fd.get(key);
+    if (v) params.append(key, v);
+  }
+  const target = document.getElementById('preview-' + kind);
+  target.textContent = '⏳ 계산 중...';
+  try {
+    const r = await fetch('/settings/txn-mgmt/preview?' + params.toString());
+    const d = await r.json();
+    if (d.error) { target.textContent = '오류: ' + d.error; return; }
+    const fmt = n => n.toLocaleString();
+    const scope = [];
+    if (d.year) scope.push(d.year + '년');
+    if (d.quarter) scope.push(d.quarter);
+    if (d.month) scope.push(d.month + '월');
+    if (d.day) scope.push(d.day + '일');
+    if (!scope.length) scope.push('전체');
+    target.innerHTML = `<span class="text-red-700 font-bold">${fmt(d.count)} 건</span> · 공급가액 ${fmt(d.sum_supply)} · 합계 ${fmt(d.sum_total)} <span class="text-slate-400 ml-2">(${scope.join(' ')})</span>`;
+  } catch (e) {
+    target.textContent = '미리보기 오류: ' + e;
+  }
+}
+
+function confirmDelete(kind, label) {
+  const form = document.getElementById('form-' + kind);
+  const confirmInput = form.querySelector('input[name="confirm"]');
+  // 공백 자르고 대소문자 무시
+  const v = (confirmInput.value || '').trim().toUpperCase();
+  if (v !== 'DELETE') {
+    alert('"DELETE" 를 정확히 입력해야 삭제가 진행됩니다. (현재 입력: ' + JSON.stringify(confirmInput.value) + ')');
+    confirmInput.focus();
+    return false;
+  }
+  // 사용자가 공백 넣었어도 서버에서 일치하도록 정규화
+  confirmInput.value = 'DELETE';
+  const target = document.getElementById('preview-' + kind);
+  return confirm('정말 ' + label + ' 데이터를 삭제하시겠습니까?\n\n' + target.textContent + '\n\n이 작업은 되돌릴 수 없습니다.\nDB가 자동 백업된 후 진행됩니다.');
+}
+
+// 초기 1회 호출 (전체 카운트)
+updatePreview('sale');
+updatePreview('purchase');
+</script>
+{% endif %}
+
+
 {# ==================== 네트워크 / 사내접속 ==================== #}
 {% if page == 'network' %}
 <form method="post" action="/settings/save" class="card mb-4">

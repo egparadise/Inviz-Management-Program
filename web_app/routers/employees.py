@@ -30,6 +30,37 @@ SORT_COLS = {
 }
 
 
+@router.post("/bulk-delete")
+async def bulk_delete_employees(request: Request, db: Session = Depends(get_db)):
+    """체크된 사번 목록을 일괄 삭제. 자동 DB 백업 후 진행.
+    동적 라우터 `/{code}`보다 앞에 정의해야 매칭 우선됨."""
+    form = await request.form()
+    codes = form.getlist("codes")
+    if not codes:
+        return RedirectResponse("/employees?_msg=" + "삭제할 항목이 선택되지 않았습니다", status_code=303)
+
+    import shutil
+    from datetime import datetime as _dt
+    from database import DB_PATH
+    backup_dir = DB_PATH.parent / "db_backup"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"pre_bulk_delete_employee_{ts}.db"
+    try:
+        shutil.copy2(DB_PATH, backup_path)
+    except Exception as e:
+        return RedirectResponse("/employees?_msg=" + f"백업 실패 - 삭제 중단: {e}", status_code=303)
+
+    n_deleted = 0
+    for code in codes:
+        row = db.get(Employee, code)
+        if row:
+            db.delete(row); n_deleted += 1
+    db.commit()
+    msg = f"✅ {n_deleted}명 일괄 삭제 완료 (백업: {backup_path.name})"
+    return RedirectResponse("/employees?_msg=" + msg, status_code=303)
+
+
 @router.get("", response_class=HTMLResponse)
 def list_employees(request: Request, db: Session = Depends(get_db),
                    q: str = "", active: str = "", department: str = "",

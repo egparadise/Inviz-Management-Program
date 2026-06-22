@@ -46,7 +46,7 @@ def parse_i(s):
         return None
 
 
-def build_sale_query(year, month, from_date, to_date, party, product, q):
+def build_sale_query(year, month, from_date, to_date, party, product, q, sale_type=""):
     """매출 조회용 공통 WHERE 절. SQLAlchemy 절들 반환."""
     conds = []
     if from_date: conds.append(Sale.txn_date >= from_date)
@@ -55,6 +55,7 @@ def build_sale_query(year, month, from_date, to_date, party, product, q):
     if month: conds.append(Sale.month == month)
     if party: conds.append(Sale.party_name.contains(party))
     if product: conds.append(Sale.product_code == product)
+    if sale_type: conds.append(Sale.sale_type == sale_type)
     if q:
         conds.append(or_(
             Sale.party_name.contains(q),
@@ -75,8 +76,11 @@ def list_sales(
     party: str = "",
     product: str = "",
     q: str = "",
+    sale_type: str = "",
     page: int = 1,
     per_page: int = 50,
+    sort: str = "",
+    dir: str = "desc",
 ):
     year_i = parse_i(year)
     month_i = parse_i(month)
@@ -91,7 +95,7 @@ def list_sales(
         if _td: td = _td
     if "per_page" not in request.query_params:
         per_page = _ss.get_int("search_per_page", per_page)
-    conds = build_sale_query(year_i, month_i, fd, td, party, product, q)
+    conds = build_sale_query(year_i, month_i, fd, td, party, product, q, sale_type)
     base = select(Sale).where(*conds) if conds else select(Sale)
 
     # 합계
@@ -128,10 +132,24 @@ def list_sales(
         prod_stmt.group_by(Sale.product_code, Sale.product_name).order_by(func.sum(Sale.supply).desc())
     ).all()
 
+    # 정렬 (사용자 지정 컬럼 + 방향)
+    SORT_MAP = {
+        "txn_date": Sale.txn_date, "party_name": Sale.party_name,
+        "product_name": Sale.product_name, "item_raw": Sale.item_raw,
+        "sale_type": Sale.sale_type, "supply": Sale.supply,
+        "vat": Sale.vat, "total": Sale.total, "note": Sale.note,
+    }
+    col = SORT_MAP.get(sort)
+    direction = "asc" if dir == "asc" else "desc"
+    if col is not None:
+        order_col = col.asc() if direction == "asc" else col.desc()
+        order_stmt = base.order_by(order_col, Sale.id.desc())
+    else:
+        order_stmt = base.order_by(Sale.txn_date.desc(), Sale.id.desc())
+
     # 페이지 결과
     rows = db.execute(
-        base.order_by(Sale.txn_date.desc(), Sale.id.desc())
-        .offset((page - 1) * per_page).limit(per_page)
+        order_stmt.offset((page - 1) * per_page).limit(per_page)
     ).scalars().all()
 
     products = db.execute(select(Product).order_by(Product.code)).scalars().all()
@@ -155,14 +173,19 @@ def list_sales(
         "years": years,
         "recent_batches": recent_batches,
         "filter": {"year": year_i, "month": month_i, "from_date": from_date, "to_date": to_date,
-                   "party": party, "product": product, "q": q},
+                   "party": party, "product": product, "q": q, "sale_type": sale_type,
+                   "sort": sort, "dir": direction},
+        "sale_types": [r[0] for r in db.execute(
+            select(Sale.sale_type).where(Sale.sale_type.is_not(None))
+            .group_by(Sale.sale_type).order_by(Sale.sale_type)
+        ).all() if r[0]],
         "page": page, "per_page": per_page,
         "total_pages": (total_count + per_page - 1) // per_page,
-        "qs": _qs(year_i, month_i, from_date, to_date, party, product, q),
+        "qs": _qs(year_i, month_i, from_date, to_date, party, product, q, sale_type, sort, direction),
     })
 
 
-def _qs(year, month, from_date, to_date, party, product, q):
+def _qs(year, month, from_date, to_date, party, product, q, sale_type="", sort="", dir=""):
     """필터 쿼리스트링 — 페이지네이션/export 링크에 사용"""
     parts = []
     if year: parts.append(f"year={year}")
@@ -171,7 +194,10 @@ def _qs(year, month, from_date, to_date, party, product, q):
     if to_date: parts.append(f"to_date={to_date}")
     if party: parts.append(f"party={party}")
     if product: parts.append(f"product={product}")
+    if sale_type: parts.append(f"sale_type={sale_type}")
     if q: parts.append(f"q={q}")
+    if sort: parts.append(f"sort={sort}")
+    if dir: parts.append(f"dir={dir}")
     return "&".join(parts)
 
 
@@ -732,13 +758,16 @@ def create_sale(
 
 
 @router.get("/{sale_id}/edit", response_class=HTMLResponse)
-def edit_form(sale_id: int, request: Request, db: Session = Depends(get_db)):
+def edit_form(sale_id: int, request: Request, db: Session = Depends(get_db), back: str = ""):
     row = db.get(Sale, sale_id)
     if not row: raise HTTPException(404)
     products = db.execute(select(Product).order_by(Product.code)).scalars().all()
     parties = db.execute(select(Party).where(Party.active == "Y").order_by(Party.name).limit(2000)).scalars().all()
+    # 안전한 back URL: /sales 또는 /sales?... 만 허용 (external redirect 차단)
+    safe_back = back if (back.startswith("/sales") or back.startswith("/purchases")) else ""
     return templates.TemplateResponse("sales/form.html", {
-        "request": request, "row": row, "products": products, "parties": parties, "today": date.today(),
+        "request": request, "row": row, "products": products, "parties": parties,
+        "today": date.today(), "back_url": safe_back,
     })
 
 
@@ -749,6 +778,7 @@ def update_sale(
     product_code: str = Form(""), item_raw: str = Form(""),
     supply: float = Form(0), vat: float = Form(0),
     sale_type: str = Form("기타"), payment_method: str = Form(""), note: str = Form(""),
+    back: str = Form(""),
 ):
     row = db.get(Sale, sale_id)
     if not row: raise HTTPException(404)
@@ -767,11 +797,16 @@ def update_sale(
     row.payment_method = payment_method or None
     row.note = note or None
     db.commit()
+    # 필터 보존: back이 안전한 내부 경로면 그곳으로, 아니면 fallback
+    if back and (back.startswith("/sales") or back.startswith("/purchases")):
+        return RedirectResponse(back, status_code=303)
     return RedirectResponse(f"/sales?year={dt.year}", status_code=303)
 
 
 @router.post("/{sale_id}/delete")
-def delete_sale(sale_id: int, db: Session = Depends(get_db)):
+def delete_sale(sale_id: int, db: Session = Depends(get_db), back: str = Form("")):
     row = db.get(Sale, sale_id)
     if row: db.delete(row); db.commit()
+    if back and back.startswith("/sales"):
+        return RedirectResponse(back, status_code=303)
     return RedirectResponse("/sales", status_code=303)

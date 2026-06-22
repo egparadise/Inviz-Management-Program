@@ -85,14 +85,47 @@ def health():
 
 # ===== 대시보드 =====
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, db: Session = Depends(get_db)):
-    # KPI 집계
+def dashboard(request: Request, db: Session = Depends(get_db),
+              year: int | None = None, quarter: str = "", month: int | None = None):
+    # KPI 집계 — 사용자 필터 우선, 미지정이면 현재 연도
     current_year = datetime.now().year
+    sel_year = year or current_year
 
-    def year_sum(model, field_name, year):
+    # 분기 → 월 범위
+    q_months = {"Q1": (1, 3), "Q2": (4, 6), "Q3": (7, 9), "Q4": (10, 12)}.get(quarter)
+
+    def _filter(model):
+        """선택된 연도/분기/월 WHERE 절."""
+        conds = [model.year == sel_year]
+        if month:
+            conds.append(model.month == month)
+        elif q_months:
+            conds.append(model.month >= q_months[0])
+            conds.append(model.month <= q_months[1])
+        return conds
+
+    def filtered_sum(model, field_name):
         col = getattr(model, field_name)
-        return db.scalar(select(func.coalesce(func.sum(col), 0)).where(model.year == year)) or 0
+        return db.scalar(
+            select(func.coalesce(func.sum(col), 0)).where(*_filter(model))
+        ) or 0
 
+    def year_sum(model, field_name, y):
+        col = getattr(model, field_name)
+        return db.scalar(select(func.coalesce(func.sum(col), 0)).where(model.year == y)) or 0
+
+    # 선택 기간 KPI
+    selected_kpi = {
+        "sales": float(filtered_sum(Sale, "supply") or 0),
+        "purchases": float(filtered_sum(Purchase, "supply") or 0),
+        "payroll": float(filtered_sum(Payroll, "gross_pay") or 0),
+        "expense": float(filtered_sum(Expense, "amount") or 0),
+    }
+    selected_kpi["gross"] = selected_kpi["sales"] - selected_kpi["purchases"]
+    selected_kpi["operating"] = selected_kpi["gross"] - selected_kpi["payroll"] - selected_kpi["expense"]
+    selected_kpi["margin"] = (selected_kpi["gross"] / selected_kpi["sales"] * 100) if selected_kpi["sales"] else 0
+
+    # 연간 추이 — 비정상 연도(< 2020) 제외, 2021~현재
     years_data = {}
     for y in range(2021, current_year + 1):
         years_data[y] = {
@@ -105,25 +138,25 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         years_data[y]["operating"] = years_data[y]["gross"] - years_data[y]["payroll"] - years_data[y]["expense"]
         years_data[y]["margin"] = (years_data[y]["gross"] / years_data[y]["sales"] * 100) if years_data[y]["sales"] else 0
 
-    # 월별 (당해)
+    # 월별 추이 — 선택 연도 기준
     months_data = []
     for m in range(1, 13):
-        s = db.scalar(select(func.coalesce(func.sum(Sale.supply), 0)).where(Sale.year == current_year, Sale.month == m)) or 0
-        p = db.scalar(select(func.coalesce(func.sum(Purchase.supply), 0)).where(Purchase.year == current_year, Purchase.month == m)) or 0
+        s = db.scalar(select(func.coalesce(func.sum(Sale.supply), 0)).where(Sale.year == sel_year, Sale.month == m)) or 0
+        p = db.scalar(select(func.coalesce(func.sum(Purchase.supply), 0)).where(Purchase.year == sel_year, Purchase.month == m)) or 0
         months_data.append({"month": m, "sales": float(s), "purchases": float(p)})
 
-    # 제품별 매출 (당해)
+    # 제품별 매출 — 선택 기간 기준
     product_data = db.execute(
         select(Sale.product_code, Sale.product_name, func.sum(Sale.supply).label("total"))
-        .where(Sale.year == current_year)
+        .where(*_filter(Sale))
         .group_by(Sale.product_code, Sale.product_name)
         .order_by(func.sum(Sale.supply).desc())
     ).all()
 
-    # 거래처 TOP10 매출 (당해)
+    # 거래처 TOP10 — 선택 기간 기준
     top_parties = db.execute(
         select(Sale.party_name, func.sum(Sale.supply).label("total"))
-        .where(Sale.year == current_year, Sale.party_name.isnot(None))
+        .where(*_filter(Sale), Sale.party_name.isnot(None))
         .group_by(Sale.party_name)
         .order_by(func.sum(Sale.supply).desc())
         .limit(10)
@@ -157,9 +190,18 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         .group_by(Contract.status)
     ).all()
 
+    # 비정상 연도 (year < 2020 또는 2030 초과) 통계 — 안내용
+    abnormal = db.execute(
+        select(func.count(), func.coalesce(func.sum(Sale.supply), 0))
+        .where((Sale.year < 2020) | (Sale.year > 2030))
+    ).one()
+    abnormal_sale = {"count": int(abnormal[0] or 0), "sum": float(abnormal[1] or 0)}
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "current_year": current_year,
+        "sel_year": sel_year, "sel_quarter": quarter, "sel_month": month,
+        "selected_kpi": selected_kpi,
         "years_data": years_data,
         "months_data": months_data,
         "product_data": [(r[0], r[1], float(r[2] or 0)) for r in product_data],
@@ -167,6 +209,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         "loan_summary": [(r[0], r[1], float(r[2] or 0)) for r in loan_summary],
         "ar_top": ar_top,
         "contracts_by_status": [(r[0], r[1], float(r[2] or 0)) for r in contracts_by_status],
+        "abnormal_sale": abnormal_sale,
     })
 
 

@@ -33,13 +33,43 @@
   </th>
 {% endmacro %}
 
+{% set _msg = request.query_params.get('_msg', '') %}
+{% if _msg %}
+<div class="card mb-3 bg-green-50 border border-green-200 text-sm text-green-900">{{ _msg }}</div>
+{% endif %}
+
 <div class="card">
-  <div class="flex items-center justify-between mb-3">
+  <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
     <div class="text-sm text-slate-600">총 <span class="font-semibold">{{ rows|length }}</span>명</div>
-    <div class="text-xs text-slate-400">↕ 머리글을 클릭하면 정렬됩니다 (한 번 더 클릭 = 역순)</div>
+    <div class="flex items-center gap-3">
+      <button type="button" id="bulk-toggle-btn" onclick="toggleBulkMode()"
+              class="btn btn-secondary text-xs">🗑 일괄 삭제</button>
+      <div class="text-xs text-slate-400">↕ 머리글 클릭 정렬 (한 번 더 = 역순)</div>
+    </div>
   </div>
+
+  <!-- 일괄 삭제 모드 안내·실행 바 (모드 ON 시 노출) -->
+  <form method="post" action="/employees/bulk-delete" id="bulk-form"
+        class="hidden mb-3 p-3 rounded-lg flex items-center justify-between gap-3"
+        style="background: linear-gradient(135deg, #FEF2F2 0%, #FFF7ED 100%); border: 2px solid #FCA5A5;"
+        onsubmit="return confirmBulkDelete(event)">
+    <div class="text-sm">
+      <b class="text-red-700">일괄 삭제 모드</b> ON —
+      선택: <span id="sel-count" class="font-bold text-red-700">0</span>명
+      <button type="button" onclick="selectAll(true)" class="text-xs text-purple-700 underline ml-2">전체 선택</button>
+      <button type="button" onclick="selectAll(false)" class="text-xs text-slate-500 underline ml-1">선택 해제</button>
+    </div>
+    <div class="flex gap-2">
+      <button type="submit" class="btn text-white" style="background:#DC2626; padding:6px 16px;">🗑 선택 항목 삭제</button>
+      <button type="button" onclick="toggleBulkMode()" class="btn btn-secondary text-xs">취소</button>
+    </div>
+  </form>
+
   <table class="table">
     <thead><tr>
+      <th class="bulk-cell hidden" style="width:32px;">
+        <input type="checkbox" id="check-all" onchange="selectAll(this.checked)" title="이 페이지 전체 선택">
+      </th>
       {{ sorth('code', '사번') }}
       {{ sorth('name', '성명') }}
       {{ sorth('department', '부서') }}
@@ -55,6 +85,10 @@
     <tbody>
       {% for r in rows %}
       <tr>
+        <td class="bulk-cell hidden">
+          <input type="checkbox" form="bulk-form" name="codes" value="{{ r.code }}"
+                 class="row-check" onchange="updateSelCount()">
+        </td>
         <td class="font-mono text-xs">{{ r.code }}</td>
         <td class="font-medium">{{ r.name }}</td>
         <td>{{ r.department or '' }}</td>
@@ -76,4 +110,44 @@
     </tbody>
   </table>
 </div>
+
+<script>
+let bulkMode = false;
+function toggleBulkMode() {
+  bulkMode = !bulkMode;
+  const btn = document.getElementById('bulk-toggle-btn');
+  const form = document.getElementById('bulk-form');
+  document.querySelectorAll('.bulk-cell').forEach(el => el.classList.toggle('hidden', !bulkMode));
+  if (bulkMode) {
+    form.classList.remove('hidden');
+    btn.textContent = '✕ 모드 종료';
+    btn.classList.remove('btn-secondary'); btn.classList.add('btn-accent');
+  } else {
+    form.classList.add('hidden');
+    btn.textContent = '🗑 일괄 삭제';
+    btn.classList.add('btn-secondary'); btn.classList.remove('btn-accent');
+    selectAll(false);
+  }
+}
+function selectAll(checked) {
+  document.querySelectorAll('.row-check').forEach(c => c.checked = checked);
+  document.getElementById('check-all').checked = checked;
+  updateSelCount();
+}
+function updateSelCount() {
+  const n = document.querySelectorAll('.row-check:checked').length;
+  document.getElementById('sel-count').textContent = n;
+}
+function confirmBulkDelete(ev) {
+  const n = document.querySelectorAll('.row-check:checked').length;
+  if (n === 0) {
+    alert('삭제할 항목을 1개 이상 선택하세요.');
+    ev.preventDefault(); return false;
+  }
+  if (!confirm(`선택된 ${n}명을 삭제합니다.\n\n이 작업은 되돌릴 수 없으며, DB가 자동 백업된 후 진행됩니다.`)) {
+    ev.preventDefault(); return false;
+  }
+  return true;
+}
+</script>
 {% endblock %}

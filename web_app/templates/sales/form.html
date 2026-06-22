@@ -3,6 +3,7 @@
 {% block content %}
 <h1 class="text-2xl font-bold mb-4 text-slate-800">{% if row %}매출 수정{% else %}매출 신규 등록{% endif %}</h1>
 <form method="post" action="{% if row %}/sales/{{ row.id }}{% else %}/sales{% endif %}" class="card max-w-3xl">
+  <input type="hidden" name="back" value="{{ back_url or '' }}">
   <div class="grid grid-cols-2 gap-4">
     <div>
       <label class="text-sm font-medium text-slate-700">전표일자 *</label>
@@ -60,7 +61,7 @@
   </div>
   <div class="flex gap-2 mt-6">
     <button type="submit" class="btn btn-primary">{% if row %}수정{% else %}등록{% endif %}</button>
-    <a href="/sales" class="btn btn-secondary">취소</a>
+    <a href="{{ back_url or '/sales' }}" class="btn btn-secondary">취소</a>
   </div>
 </form>
 <script>

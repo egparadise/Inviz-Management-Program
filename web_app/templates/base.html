@@ -298,6 +298,31 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', -apple-system, sans-ser
 .collapse-head:hover { background: #f1ecfe; }
 .collapse-chev { color: #9ca3af; font-size: 11px; user-select: none; white-space: nowrap; }
 .collapse-body { padding: 4px 2px 0; }
+
+/* ===== 통일 정렬 인디케이터 (sort_link 매크로용) — 전역 ===== */
+.inviz-sort-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: #64748B; text-decoration: none; user-select: none;
+  font-weight: 600; font-size: inherit; line-height: 1;
+  white-space: nowrap;
+}
+.inviz-sort-link:hover { color: var(--inviz-purple); }
+.inviz-sort-link.active { color: var(--inviz-purple-dark); }
+.inviz-sort-link .sl-label { line-height: 1; }
+.inviz-sort-link .sl-arrows {
+  display: inline-flex; flex-direction: column;
+  line-height: 0.7; font-size: 8px;
+}
+.inviz-sort-link .sl-up,
+.inviz-sort-link .sl-down {
+  color: #CBD5E1; transition: color .12s ease;
+}
+.inviz-sort-link:hover .sl-up,
+.inviz-sort-link:hover .sl-down { color: #94A3B8; }
+.inviz-sort-link .sl-up.on,
+.inviz-sort-link .sl-down.on { color: var(--inviz-orange, #F97316); }
+.inviz-sort-link.arrows-only { padding: 0 2px; }
+
 </style>
 <!-- 설정 기반 동적 스타일 (글자 크기 / 입력창 크기) -->
 <style>

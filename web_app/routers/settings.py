@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import APIRouter, Request, Form, Depends, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, and_
 from sqlalchemy.orm import Session
 
 from fastapi import HTTPException
@@ -35,6 +35,8 @@ SETTINGS_PAGES = [
     ("products", "제품 관리", "📦"),
     ("payroll", "급여 요율", "🧮"),
     ("banking", "은행·카드", "💳"),
+    ("txn-mgmt", "매출·매입 관리", "🗑"),
+    ("db", "DB 탐색기", "🗄"),
     ("menu", "메뉴 순서", "🧭"),
     ("account", "계정·보안·접속", "🔐"),
     ("logs", "활동 로그", "🧾"),
@@ -159,6 +161,7 @@ def _render_settings(request, page="general", log_category="", log_limit=100, lo
         "card_issuers": ["우리카드", "광주카드", "하나카드", "신한카드", "삼성카드", "현대카드", "기타"],
         "pay_rates": pay_rates, "pay_rate_defaults": pay_rate_defaults,
         "page": page, "pages": SETTINGS_PAGES,
+        "db_inventory": _db_inventory() if page == "db" else None,
     })
 
 
@@ -768,6 +771,371 @@ def settings_user_remove(username: str = Form(...)):
 @router.get("/", response_class=HTMLResponse)
 def settings_root():
     return RedirectResponse("/settings/general", status_code=307)
+
+
+# ====== DB 탐색기 (읽기 전용) ======
+_DB_SECRET_PATTERNS = ("_key", "_pass", "_password", "_token", "_secret",
+                       "_hash", "_certkey", "linkid")
+
+
+def _is_secret_key(key: str) -> bool:
+    k = (key or "").lower()
+    return any(p in k for p in _DB_SECRET_PATTERNS)
+
+
+def _mask_secret(value):
+    if value is None:
+        return ""
+    s = str(value)
+    if not s:
+        return ""
+    if len(s) <= 4:
+        return "*" * len(s)
+    return s[:2] + "*" * (len(s) - 4) + s[-2:]
+
+
+def _db_inventory():
+    """app.db의 모든 테이블 목록 + 행수 + 카테고리."""
+    from database import DB_PATH
+    import sqlite3 as _sqlite
+    conn = _sqlite.connect(DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT name, type, sql FROM sqlite_master "
+            "WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' "
+            "ORDER BY name"
+        ).fetchall()
+        out = []
+        for name, ttype, sql in rows:
+            try:
+                n = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
+            except Exception:
+                n = -1
+            # 카테고리 분류
+            if name.startswith("dim_"):       cat, icon, color = "DIM", "🧩", "#7C3AED"
+            elif name.startswith("fact_"):    cat, icon, color = "FACT", "📊", "#10B981"
+            elif name.startswith("master_"):  cat, icon, color = "마스터", "📋", "#F59E0B"
+            elif name in ("file_registry", "sync_run", "sync_run_detail",
+                          "integrity_check", "unmapped_file_review", "import_batch"):
+                cat, icon, color = "동기화", "🔄", "#3B82F6"
+            elif name in ("knowledge_chunk", "chat_history", "ai_classify_run"):
+                cat, icon, color = "AI", "🤖", "#EF4444"
+            elif name in ("app_setting", "user_account", "activity_log",
+                          "bank_account", "card", "document", "contract"):
+                cat, icon, color = "운영", "⚙", "#6B7280"
+            else:
+                cat, icon, color = "기타", "📦", "#94A3B8"
+            out.append({"name": name, "type": ttype, "count": n,
+                        "category": cat, "icon": icon, "color": color})
+        return sorted(out, key=lambda x: (x["category"], x["name"]))
+    finally:
+        conn.close()
+
+
+def _table_schema(name: str):
+    """PRAGMA로 컬럼·인덱스·외래키 조회."""
+    from database import DB_PATH
+    import sqlite3 as _sqlite
+    conn = _sqlite.connect(DB_PATH)
+    try:
+        cols = [{"cid": r[0], "name": r[1], "type": r[2], "notnull": bool(r[3]),
+                 "default": r[4], "pk": r[5]}
+                for r in conn.execute(f'PRAGMA table_info("{name}")').fetchall()]
+        idx_rows = conn.execute(f'PRAGMA index_list("{name}")').fetchall()
+        indexes = []
+        for ir in idx_rows:
+            iname = ir[1]
+            icols = [r[2] for r in conn.execute(f'PRAGMA index_info("{iname}")').fetchall()]
+            indexes.append({"name": iname, "unique": bool(ir[2]), "columns": icols})
+        fks = [{"id": r[0], "from": r[3], "to_table": r[2], "to_col": r[4]}
+               for r in conn.execute(f'PRAGMA foreign_key_list("{name}")').fetchall()]
+        return {"columns": cols, "indexes": indexes, "foreign_keys": fks}
+    finally:
+        conn.close()
+
+
+def _table_rows(name: str, limit: int = 50, offset: int = 0,
+                sort_col: str = "", sort_dir: str = "desc", q: str = ""):
+    """테이블 데이터 조회 (LIMIT + 옵션 필터). 비밀값 마스킹."""
+    from database import DB_PATH
+    import sqlite3 as _sqlite
+    conn = _sqlite.connect(DB_PATH)
+    try:
+        cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{name}")').fetchall()]
+        if not cols:
+            return {"columns": [], "rows": [], "total": 0}
+
+        where, params = "", []
+        if q:
+            terms = []
+            for c in cols:
+                terms.append(f'CAST("{c}" AS TEXT) LIKE ?')
+                params.append(f"%{q}%")
+            where = " WHERE " + " OR ".join(terms)
+
+        order = ""
+        if sort_col and sort_col in cols:
+            d = "ASC" if (sort_dir or "").lower() == "asc" else "DESC"
+            order = f' ORDER BY "{sort_col}" {d}'
+        elif "id" in cols:
+            order = ' ORDER BY "id" DESC'
+
+        total = conn.execute(f'SELECT COUNT(*) FROM "{name}"' + where, params).fetchone()[0]
+        sql = (f'SELECT * FROM "{name}"' + where + order +
+               f' LIMIT {int(limit)} OFFSET {int(offset)}')
+        raw = conn.execute(sql, params).fetchall()
+
+        # app_setting 테이블은 key 컬럼 기준으로 마스킹
+        is_setting = (name == "app_setting")
+        rows = []
+        for r in raw:
+            d = {}
+            for i, c in enumerate(cols):
+                v = r[i]
+                if is_setting and c == "value":
+                    key_val = r[cols.index("key")] if "key" in cols else ""
+                    if _is_secret_key(str(key_val)):
+                        v = _mask_secret(v)
+                elif _is_secret_key(c):
+                    v = _mask_secret(v)
+                d[c] = v
+            rows.append(d)
+        return {"columns": cols, "rows": rows, "total": total}
+    finally:
+        conn.close()
+
+
+# sqlite-web 외부 GUI 프로세스 추적 (단일 인스턴스)
+_SQLITEWEB_PROC = None
+_SQLITEWEB_PORT = 18001
+
+
+@router.post("/db/launch-external")
+def db_launch_external():
+    """sqlite-web 외부 DB GUI를 백그라운드로 띄우고 접속 URL 반환."""
+    global _SQLITEWEB_PROC
+    from fastapi.responses import JSONResponse
+    import subprocess as _sp
+    import socket as _sock
+    from database import DB_PATH
+
+    # 이미 가동 중이면 그대로 사용
+    if _SQLITEWEB_PROC and _SQLITEWEB_PROC.poll() is None:
+        return JSONResponse({
+            "ok": True,
+            "url": f"http://127.0.0.1:{_SQLITEWEB_PORT}/",
+            "msg": "이미 가동 중인 sqlite-web 인스턴스에 접속합니다.",
+        })
+
+    # 포트 가용성 체크
+    try:
+        s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        s.bind(("127.0.0.1", _SQLITEWEB_PORT))
+        s.close()
+    except OSError:
+        return JSONResponse({
+            "ok": False,
+            "error": f"포트 {_SQLITEWEB_PORT}가 이미 사용 중입니다. "
+                     f"기존 sqlite-web 또는 다른 프로세스가 점유 중일 수 있습니다.",
+        }, status_code=409)
+
+    try:
+        # readonly 모드로 띄움 — 데이터 수정 불가, 조회만
+        _SQLITEWEB_PROC = _sp.Popen(
+            [
+                sys.executable if (sys := __import__("sys")) else "python",
+                "-m", "sqlite_web",
+                "--host", "127.0.0.1",
+                "--port", str(_SQLITEWEB_PORT),
+                "--no-browser",
+                "--read-only",
+                str(DB_PATH),
+            ],
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+            creationflags=getattr(_sp, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+        # 부팅 대기 (최대 5초)
+        import time as _t
+        for _ in range(50):
+            _t.sleep(0.1)
+            try:
+                s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                s.settimeout(0.2)
+                r = s.connect_ex(("127.0.0.1", _SQLITEWEB_PORT))
+                s.close()
+                if r == 0:
+                    break
+            except Exception:
+                pass
+        return JSONResponse({
+            "ok": True,
+            "url": f"http://127.0.0.1:{_SQLITEWEB_PORT}/",
+            "msg": "sqlite-web GUI가 새 포트에 띄워졌습니다.",
+            "readonly": True,
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@router.post("/db/stop-external")
+def db_stop_external():
+    global _SQLITEWEB_PROC
+    from fastapi.responses import JSONResponse
+    if _SQLITEWEB_PROC and _SQLITEWEB_PROC.poll() is None:
+        try:
+            _SQLITEWEB_PROC.terminate()
+            _SQLITEWEB_PROC.wait(timeout=5)
+        except Exception:
+            try: _SQLITEWEB_PROC.kill()
+            except Exception: pass
+        _SQLITEWEB_PROC = None
+        return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "msg": "이미 중지됨"})
+
+
+@router.get("/db/api/inventory")
+def db_api_inventory():
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"tables": _db_inventory()})
+
+
+@router.get("/db/api/schema")
+def db_api_schema(name: str):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(_table_schema(name))
+
+
+@router.get("/db/api/rows")
+def db_api_rows(name: str, limit: int = 50, offset: int = 0,
+                sort_col: str = "", sort_dir: str = "desc", q: str = ""):
+    from fastapi.responses import JSONResponse
+    if limit > 500:
+        limit = 500
+    return JSONResponse(_table_rows(name, limit, offset, sort_col, sort_dir, q))
+
+
+# ====== 매출·매입 삭제 관리 ======
+def _txn_model(kind: str):
+    from models import Sale, Purchase
+    return Sale if kind == "sale" else Purchase
+
+
+def _txn_filter_conds(model, year=None, quarter=None, month=None, day=None):
+    """범위 조건 빌더 — 연/분기/월/일 조합으로 WHERE 절."""
+    conds = []
+    if year:
+        conds.append(model.year == int(year))
+    if quarter:
+        q_to_months = {"Q1": (1, 3), "Q2": (4, 6), "Q3": (7, 9), "Q4": (10, 12)}
+        if quarter in q_to_months:
+            mfrom, mto = q_to_months[quarter]
+            conds.append(model.month >= mfrom)
+            conds.append(model.month <= mto)
+    if month:
+        conds.append(model.month == int(month))
+    if day:
+        from datetime import date as _date
+        if year and month:
+            try:
+                d = _date(int(year), int(month), int(day))
+                conds.append(model.txn_date == d)
+            except (ValueError, TypeError):
+                pass
+    return conds
+
+
+@router.get("/txn-mgmt", response_class=HTMLResponse)
+def settings_txn_mgmt(request: Request, log_category: str = "", log_limit: int = 100,
+                     log_from: str = "", log_to: str = ""):
+    """매출·매입 관리 페이지 (POST 삭제 후 redirect 대상)."""
+    return _render_settings(request, "txn-mgmt", log_category, log_limit, log_from, log_to)
+
+
+@router.get("/txn-mgmt/preview")
+def txn_mgmt_preview(kind: str, year: str = "", quarter: str = "",
+                     month: str = "", day: str = "",
+                     db: Session = Depends(get_db)):
+    """삭제 대상 건수·합계 미리보기 (JSON)."""
+    from fastapi.responses import JSONResponse
+    if kind not in ("sale", "purchase"):
+        return JSONResponse({"error": "kind must be sale|purchase"}, status_code=400)
+    model = _txn_model(kind)
+    conds = _txn_filter_conds(model, year or None, quarter or None,
+                              month or None, day or None)
+    stmt = select(func.count(), func.coalesce(func.sum(model.supply), 0),
+                  func.coalesce(func.sum(model.total), 0))
+    if conds:
+        stmt = stmt.where(and_(*conds) if len(conds) > 1 else conds[0])
+    row = db.execute(stmt).one()
+    return JSONResponse({
+        "kind": kind, "year": year, "quarter": quarter, "month": month, "day": day,
+        "count": int(row[0] or 0),
+        "sum_supply": float(row[1] or 0),
+        "sum_total": float(row[2] or 0),
+    })
+
+
+@router.post("/txn-mgmt/delete")
+async def txn_mgmt_delete(request: Request, db: Session = Depends(get_db)):
+    """삭제 실행 — DB 자동 백업 후 진행."""
+    from fastapi.responses import JSONResponse
+    form = dict(await request.form())
+    kind = form.get("kind", "")
+    if kind not in ("sale", "purchase"):
+        return JSONResponse({"error": "kind must be sale|purchase"}, status_code=400)
+    confirm = (form.get("confirm") or "").strip().upper()
+    if confirm != "DELETE":
+        return RedirectResponse(
+            "/settings/txn-mgmt?_msg=" + f"❌ 확인 입력이 'DELETE'와 일치하지 않습니다",
+            status_code=303)
+
+    model = _txn_model(kind)
+    year = form.get("year") or None
+    quarter = form.get("quarter") or None
+    month = form.get("month") or None
+    day = form.get("day") or None
+    conds = _txn_filter_conds(model, year, quarter, month, day)
+
+    # 1) DB 자동 백업
+    import shutil
+    from database import DB_PATH
+    backup_dir = DB_PATH.parent / "db_backup"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"pre_txn_delete_{kind}_{ts}.db"
+    try:
+        shutil.copy2(DB_PATH, backup_path)
+    except Exception as e:
+        return JSONResponse({"error": f"백업 실패 — 삭제 중단: {e}"}, status_code=500)
+
+    # 2) 대상 건수 측정
+    stmt = select(func.count()).select_from(model)
+    if conds:
+        stmt = stmt.where(and_(*conds) if len(conds) > 1 else conds[0])
+    n_before = db.execute(stmt).scalar() or 0
+
+    if n_before == 0:
+        return RedirectResponse(
+            f"/settings/txn-mgmt?_msg=" + f"{kind} 삭제 대상이 없습니다 (조건과 일치하는 행 0건)",
+            status_code=303)
+
+    # 3) 삭제 실행
+    from sqlalchemy import delete as _delete
+    del_stmt = _delete(model)
+    if conds:
+        del_stmt = del_stmt.where(and_(*conds) if len(conds) > 1 else conds[0])
+    db.execute(del_stmt)
+    db.commit()
+
+    label = "매출" if kind == "sale" else "매입"
+    scope = []
+    if year: scope.append(f"{year}년")
+    if quarter: scope.append(quarter)
+    if month: scope.append(f"{month}월")
+    if day: scope.append(f"{day}일")
+    if not scope: scope.append("전체")
+    msg = f"✅ {label} {n_before:,}건 삭제 완료 ({' '.join(scope)}). 백업: {backup_path.name}"
+    return RedirectResponse(f"/settings/txn-mgmt?_msg=" + msg, status_code=303)
 
 
 @router.get("/ai/ping")

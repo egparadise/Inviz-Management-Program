@@ -32,7 +32,7 @@ def parse_i(s):
         return None
 
 
-def build_purchase_query(year, month, fd, td, party, product, q):
+def build_purchase_query(year, month, fd, td, party, product, q, purchase_type=""):
     conds = []
     if fd: conds.append(Purchase.txn_date >= fd)
     if td: conds.append(Purchase.txn_date <= td)
@@ -40,11 +40,12 @@ def build_purchase_query(year, month, fd, td, party, product, q):
     if month: conds.append(Purchase.month == month)
     if party: conds.append(Purchase.party_name.contains(party))
     if product: conds.append(Purchase.product_code == product)
+    if purchase_type: conds.append(Purchase.purchase_type == purchase_type)
     if q: conds.append(or_(Purchase.party_name.contains(q), Purchase.item_raw.contains(q)))
     return conds
 
 
-def _qs(year, month, from_date, to_date, party, product, q):
+def _qs(year, month, from_date, to_date, party, product, q, purchase_type="", sort="", dir=""):
     parts = []
     if year: parts.append(f"year={year}")
     if month: parts.append(f"month={month}")
@@ -52,7 +53,10 @@ def _qs(year, month, from_date, to_date, party, product, q):
     if to_date: parts.append(f"to_date={to_date}")
     if party: parts.append(f"party={party}")
     if product: parts.append(f"product={product}")
+    if purchase_type: parts.append(f"purchase_type={purchase_type}")
     if q: parts.append(f"q={q}")
+    if sort: parts.append(f"sort={sort}")
+    if dir: parts.append(f"dir={dir}")
     return "&".join(parts)
 
 
@@ -74,7 +78,9 @@ def list_purchases(
     year: str = "", month: str = "",
     from_date: str = "", to_date: str = "",
     party: str = "", product: str = "", q: str = "",
+    purchase_type: str = "",
     page: int = 1, per_page: int = 50,
+    sort: str = "", dir: str = "desc",
 ):
     year_i = parse_i(year); month_i = parse_i(month)
     fd = parse_d(from_date); td = parse_d(to_date)
@@ -86,7 +92,7 @@ def list_purchases(
         if _td: td = _td
     if "per_page" not in request.query_params:
         per_page = _ss.get_int("search_per_page", per_page)
-    conds = build_purchase_query(year_i, month_i, fd, td, party, product, q)
+    conds = build_purchase_query(year_i, month_i, fd, td, party, product, q, purchase_type)
     base = select(Purchase).where(*conds) if conds else select(Purchase)
 
     total_count = db.scalar(select(func.count()).select_from(base.subquery())) or 0
@@ -120,13 +126,33 @@ def list_purchases(
         prod_stmt.group_by(Purchase.product_code, Purchase.product_name).order_by(func.sum(Purchase.supply).desc())
     ).all()
 
+    SORT_MAP = {
+        "txn_date": Purchase.txn_date, "party_name": Purchase.party_name,
+        "product_name": Purchase.product_name, "item_raw": Purchase.item_raw,
+        "purchase_type": Purchase.purchase_type, "supply": Purchase.supply,
+        "vat": Purchase.vat, "total": Purchase.total, "note": Purchase.note,
+    }
+    col = SORT_MAP.get(sort)
+    direction = "asc" if dir == "asc" else "desc"
+    if col is not None:
+        order_col = col.asc() if direction == "asc" else col.desc()
+        order_stmt = base.order_by(order_col, Purchase.id.desc())
+    else:
+        order_stmt = base.order_by(Purchase.txn_date.desc(), Purchase.id.desc())
+
     rows = db.execute(
-        base.order_by(Purchase.txn_date.desc(), Purchase.id.desc())
-        .offset((page - 1) * per_page).limit(per_page)
+        order_stmt.offset((page - 1) * per_page).limit(per_page)
     ).scalars().all()
 
     products = db.execute(select(Product).order_by(Product.code)).scalars().all()
     years = list(range(2021, datetime.now().year + 1))
+
+    # 최근 업로드 적용 내역 (되돌리기용, 안 되돌린 것만)
+    from models import ImportBatch
+    recent_batches = db.execute(
+        select(ImportBatch).where(ImportBatch.domain == "purchase", ImportBatch.undone == "N")
+        .order_by(ImportBatch.id.desc()).limit(5)
+    ).scalars().all()
 
     return templates.TemplateResponse("purchases/list.html", {
         "request": request, "rows": rows,
@@ -136,10 +162,16 @@ def list_purchases(
         "prod_sum": [(r[0], r[1], r[2], float(r[3] or 0)) for r in prod_sum],
         "products": products, "years": years,
         "filter": {"year": year_i, "month": month_i, "from_date": from_date, "to_date": to_date,
-                   "party": party, "product": product, "q": q},
+                   "party": party, "product": product, "q": q, "purchase_type": purchase_type,
+                   "sort": sort, "dir": direction},
+        "purchase_types": [r[0] for r in db.execute(
+            select(Purchase.purchase_type).where(Purchase.purchase_type.is_not(None))
+            .group_by(Purchase.purchase_type).order_by(Purchase.purchase_type)
+        ).all() if r[0]],
         "page": page, "per_page": per_page,
         "total_pages": (total_count + per_page - 1) // per_page,
-        "qs": _qs(year_i, month_i, from_date, to_date, party, product, q),
+        "qs": _qs(year_i, month_i, from_date, to_date, party, product, q, purchase_type, sort, direction),
+        "recent_batches": recent_batches,
     })
 
 
@@ -149,10 +181,11 @@ def export_xlsx(
     year: str = "", month: str = "",
     from_date: str = "", to_date: str = "",
     party: str = "", product: str = "", q: str = "",
+    purchase_type: str = "",
 ):
     year_i = parse_i(year); month_i = parse_i(month)
     fd = parse_d(from_date); td = parse_d(to_date)
-    conds = build_purchase_query(year_i, month_i, fd, td, party, product, q)
+    conds = build_purchase_query(year_i, month_i, fd, td, party, product, q, purchase_type)
     base = select(Purchase).where(*conds) if conds else select(Purchase)
     rows = db.execute(base.order_by(Purchase.txn_date, Purchase.id)).scalars().all()
 
@@ -182,7 +215,7 @@ def export_pdf(
 ):
     year_i = parse_i(year); month_i = parse_i(month)
     fd = parse_d(from_date); td = parse_d(to_date)
-    conds = build_purchase_query(year_i, month_i, fd, td, party, product, q)
+    conds = build_purchase_query(year_i, month_i, fd, td, party, product, q, purchase_type)
     base = select(Purchase).where(*conds) if conds else select(Purchase)
     rows = db.execute(base.order_by(Purchase.txn_date, Purchase.id)).scalars().all()
 
@@ -416,10 +449,22 @@ async def import_xlsx_preview_p(
     })
 
 
+def _record_purchase_batch(db, kind: str, ids: list, note: str = ""):
+    """매입 업로드 적용 배치 기록 (되돌리기용). 배치 id 반환."""
+    from models import ImportBatch
+    if not ids:
+        return ""
+    b = ImportBatch(domain="purchase", kind=kind, count=len(ids),
+                    row_ids=json.dumps(ids), note=note)
+    db.add(b); db.commit(); db.refresh(b)
+    return b.id
+
+
 @router.post("/import-xlsx/commit")
 def import_xlsx_commit_p(db: Session = Depends(get_db), payload: str = Form(...)):
     rows = json.loads(payload)
     n = 0
+    ids = []
     for r in rows:
         dt = datetime.strptime(r["txn_date"], "%Y-%m-%d").date() if isinstance(r["txn_date"], str) else r["txn_date"]
         product_code = r.get("product_code") or "P999"
@@ -440,9 +485,10 @@ def import_xlsx_commit_p(db: Session = Depends(get_db), payload: str = Form(...)
         )
         db.add(p); db.flush()
         p.txn_id = f"P-XLSX-{p.id:06d}"
-        n += 1
+        ids.append(p.id); n += 1
     db.commit()
-    return RedirectResponse(f"/purchases?imported_xlsx={n}", status_code=303)
+    bid = _record_purchase_batch(db, "xlsx", ids, note=f"Excel 업로드 {n}건")
+    return RedirectResponse(f"/purchases?imported_xlsx={n}&batch={bid}", status_code=303)
 
 
 @router.get("/import-csv", response_class=HTMLResponse)
@@ -526,6 +572,7 @@ async def import_csv_preview(request: Request, file: UploadFile = File(...)):
 def import_csv_commit(db: Session = Depends(get_db), payload: str = Form(...)):
     rows = json.loads(payload)
     n = 0
+    ids = []
     for r in rows:
         dt = datetime.strptime(r["txn_date"], "%Y-%m-%d").date() if isinstance(r["txn_date"], str) else r["txn_date"]
         product_code = r.get("product_code") or "P999"
@@ -546,9 +593,29 @@ def import_csv_commit(db: Session = Depends(get_db), payload: str = Form(...)):
         )
         db.add(p); db.flush()
         p.txn_id = f"P-CSV-{p.id:06d}"
-        n += 1
+        ids.append(p.id); n += 1
     db.commit()
-    return RedirectResponse(f"/purchases?imported={n}", status_code=303)
+    bid = _record_purchase_batch(db, "csv", ids, note=f"CSV 업로드 {n}건")
+    return RedirectResponse(f"/purchases?imported={n}&batch={bid}", status_code=303)
+
+
+@router.post("/import/undo/{batch_id}")
+def import_undo_purchase(batch_id: int, db: Session = Depends(get_db)):
+    """매입 업로드 적용을 행 단위로 정확히 되돌리기 — 적용 전 상태로 복원"""
+    import json as _json
+    from models import ImportBatch
+    b = db.get(ImportBatch, batch_id)
+    removed = 0
+    if b and b.undone != "Y" and b.domain == "purchase":
+        ids = _json.loads(b.row_ids or "[]")
+        for pid in ids:
+            row = db.get(Purchase, pid)
+            # 안전: 웹 업로드 데이터만 삭제
+            if row and row.source_file == "web_app":
+                db.delete(row); removed += 1
+        b.undone = "Y"
+        db.commit()
+    return RedirectResponse(f"/purchases?undone={removed}", status_code=303)
 
 
 # ====================== 기존 CRUD ======================
@@ -591,13 +658,15 @@ def create_purchase(
 
 
 @router.get("/{pid}/edit", response_class=HTMLResponse)
-def edit_form(pid: int, request: Request, db: Session = Depends(get_db)):
+def edit_form(pid: int, request: Request, db: Session = Depends(get_db), back: str = ""):
     row = db.get(Purchase, pid)
     if not row: raise HTTPException(404)
     products = db.execute(select(Product).order_by(Product.code)).scalars().all()
     parties = db.execute(select(Party).where(Party.active == "Y").order_by(Party.name).limit(2000)).scalars().all()
+    safe_back = back if (back.startswith("/purchases") or back.startswith("/sales")) else ""
     return templates.TemplateResponse("purchases/form.html", {
-        "request": request, "row": row, "products": products, "parties": parties, "today": date.today(),
+        "request": request, "row": row, "products": products, "parties": parties,
+        "today": date.today(), "back_url": safe_back,
     })
 
 
@@ -608,6 +677,7 @@ def update_purchase(
     product_code: str = Form(""), item_raw: str = Form(""),
     supply: float = Form(0), vat: float = Form(0),
     purchase_type: str = Form("기타"), payment_method: str = Form(""), note: str = Form(""),
+    back: str = Form(""),
 ):
     row = db.get(Purchase, pid)
     if not row: raise HTTPException(404)
@@ -624,11 +694,15 @@ def update_purchase(
     row.supply = supply; row.vat = vat; row.total = supply + vat
     row.payment_method = payment_method or None; row.note = note or None
     db.commit()
+    if back and (back.startswith("/purchases") or back.startswith("/sales")):
+        return RedirectResponse(back, status_code=303)
     return RedirectResponse(f"/purchases?year={dt.year}", status_code=303)
 
 
 @router.post("/{pid}/delete")
-def delete_purchase(pid: int, db: Session = Depends(get_db)):
+def delete_purchase(pid: int, db: Session = Depends(get_db), back: str = Form("")):
     row = db.get(Purchase, pid)
     if row: db.delete(row); db.commit()
+    if back and back.startswith("/purchases"):
+        return RedirectResponse(back, status_code=303)
     return RedirectResponse("/purchases", status_code=303)

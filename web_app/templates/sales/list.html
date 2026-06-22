@@ -175,14 +175,97 @@
 <div class="card">
   <div class="flex items-center justify-between mb-3">
     <h3 class="font-semibold text-slate-700">거래 명세 ({{ total_count|money }}건)</h3>
-    <div class="text-xs text-slate-500">페이지 {{ page }} / {{ total_pages or 1 }}</div>
+    <div class="flex items-center gap-3">
+      {% if filter.year or filter.month or filter.from_date or filter.to_date or filter.party or filter.product or filter.q or filter.sort %}
+      <a href="/sales" class="text-xs text-purple-700 hover:underline font-semibold">🔄 필터·정렬 초기화</a>
+      {% endif %}
+      <div class="text-xs text-slate-500">페이지 {{ page }} / {{ total_pages or 1 }}</div>
+    </div>
   </div>
   <div class="overflow-x-auto">
+    {% from '_sort_macros.html' import sort_link, sort_link_blank %}
+    {% set _s = filter.sort %}{% set _d = filter.dir %}
     <table class="table">
       <thead>
         <tr>
-          <th>일자</th><th>거래처</th><th>제품</th><th>품명</th><th>매출유형</th>
-          <th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th><th>비고</th><th></th>
+          <th>{{ sort_link('txn_date', '일자', _s, _d, qs) }}</th>
+          <th>
+            <div class="inline-flex items-center gap-1">
+              {{ sort_link_blank('party_name', _s, _d, qs) }}
+              <form method="get" class="inline-block">
+                <input type="hidden" name="year" value="{{ filter.year or '' }}">
+                <input type="hidden" name="month" value="{{ filter.month or '' }}">
+                <input type="hidden" name="from_date" value="{{ filter.from_date or '' }}">
+                <input type="hidden" name="to_date" value="{{ filter.to_date or '' }}">
+                <input type="hidden" name="product" value="{{ filter.product or '' }}">
+                <input type="hidden" name="sale_type" value="{{ filter.sale_type or '' }}">
+                <input type="hidden" name="q" value="{{ filter.q or '' }}">
+                <input type="hidden" name="sort" value="{{ _s }}">
+                <input type="hidden" name="dir" value="{{ _d }}">
+                <input type="text" name="party" value="{{ filter.party or '' }}"
+                       placeholder="🔍 거래처 검색"
+                       class="text-xs border rounded px-2 py-0.5 w-32"
+                       style="font-weight:normal;"
+                       onkeydown="if(event.key==='Enter'){this.form.submit();}">
+                {% if filter.party %}
+                <a href="?{{ qs|replace('party=' + (filter.party|urlencode), '') }}&sort={{ _s }}&dir={{ _d }}"
+                   class="text-xs text-red-500 ml-1" title="검색 해제">✕</a>
+                {% endif %}
+              </form>
+            </div>
+          </th>
+          <th>
+            <div class="inline-flex items-center gap-1">
+              {{ sort_link_blank('product_name', _s, _d, qs) }}
+              <form method="get" class="inline-block">
+                <input type="hidden" name="year" value="{{ filter.year or '' }}">
+                <input type="hidden" name="month" value="{{ filter.month or '' }}">
+                <input type="hidden" name="from_date" value="{{ filter.from_date or '' }}">
+                <input type="hidden" name="to_date" value="{{ filter.to_date or '' }}">
+                <input type="hidden" name="party" value="{{ filter.party or '' }}">
+                <input type="hidden" name="sale_type" value="{{ filter.sale_type or '' }}">
+                <input type="hidden" name="q" value="{{ filter.q or '' }}">
+                <input type="hidden" name="sort" value="{{ _s }}">
+                <input type="hidden" name="dir" value="{{ _d }}">
+                <select name="product" onchange="this.form.submit()"
+                        class="text-xs border rounded px-1 py-0.5" style="font-weight:normal;">
+                  <option value="">📦 전체 제품</option>
+                  {% for p in products %}
+                  <option value="{{ p.code }}" {% if filter.product == p.code %}selected{% endif %}>{{ p.code }} · {{ p.name }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            </div>
+          </th>
+          <th>{{ sort_link('item_raw', '품명', _s, _d, qs) }}</th>
+          <th>
+            <div class="inline-flex items-center gap-1">
+              {{ sort_link_blank('sale_type', _s, _d, qs) }}
+              <form method="get" class="inline-block">
+                <input type="hidden" name="year" value="{{ filter.year or '' }}">
+                <input type="hidden" name="month" value="{{ filter.month or '' }}">
+                <input type="hidden" name="from_date" value="{{ filter.from_date or '' }}">
+                <input type="hidden" name="to_date" value="{{ filter.to_date or '' }}">
+                <input type="hidden" name="party" value="{{ filter.party or '' }}">
+                <input type="hidden" name="product" value="{{ filter.product or '' }}">
+                <input type="hidden" name="q" value="{{ filter.q or '' }}">
+                <input type="hidden" name="sort" value="{{ _s }}">
+                <input type="hidden" name="dir" value="{{ _d }}">
+                <select name="sale_type" onchange="this.form.submit()"
+                        class="text-xs border rounded px-1 py-0.5" style="font-weight:normal;">
+                  <option value="">🏷 전체 유형</option>
+                  {% for t in sale_types %}
+                  <option value="{{ t }}" {% if filter.sale_type == t %}selected{% endif %}>{{ t }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            </div>
+          </th>
+          <th class="num">{{ sort_link('supply', '공급가액', _s, _d, qs) }}</th>
+          <th class="num">{{ sort_link('vat', '부가세', _s, _d, qs) }}</th>
+          <th class="num">{{ sort_link('total', '합계', _s, _d, qs) }}</th>
+          <th>{{ sort_link('note', '비고', _s, _d, qs) }}</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -198,8 +281,11 @@
           <td class="num font-semibold">{{ r.total|money }}</td>
           <td class="text-xs text-slate-500">{{ r.note or '' }}</td>
           <td>
-            <a href="/sales/{{ r.id }}/edit" class="text-purple-700 text-xs font-semibold">수정</a>
+            {# 현재 URL(필터·정렬 포함)을 ?back=에 실어 보내면 수정/삭제 후 동일 화면으로 복귀 #}
+            {% set _back_url = ('/sales?' ~ qs) if qs else '/sales' %}
+            <a href="/sales/{{ r.id }}/edit?back={{ _back_url|urlencode }}" class="text-purple-700 text-xs font-semibold">수정</a>
             <form method="post" action="/sales/{{ r.id }}/delete" class="inline" onsubmit="return confirm('삭제하시겠습니까?')">
+              <input type="hidden" name="back" value="{{ _back_url }}">
               <button class="text-red-600 text-xs ml-2">삭제</button>
             </form>
           </td>
