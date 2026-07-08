@@ -51,8 +51,9 @@
       <div class="text-2xl font-bold mt-1" style="color: var(--inviz-purple);">{{ ci.capital|money }}<span class="text-sm font-normal text-slate-400 ml-1">원</span></div>
     </div>
     <div class="kpi-card" style="border-color: var(--inviz-orange);">
-      <div class="text-xs text-slate-500">임직원 수</div>
-      <div class="text-2xl font-bold mt-1 text-amber-700">{{ ci.employee_count|money }}<span class="text-sm font-normal text-slate-400 ml-1">명</span></div>
+      <div class="text-xs text-slate-500">임직원 수 {% if not ci.employee_count %}<span class="text-slate-400">(직원 마스터 자동)</span>{% endif %}</div>
+      <div class="text-2xl font-bold mt-1 text-amber-700">{{ (ci.employee_count if ci.employee_count else emp_active)|money }}<span class="text-sm font-normal text-slate-400 ml-1">명</span></div>
+      <a href="/employees" class="text-[11px] text-purple-700 hover:underline">재직 {{ emp_active }} · 전체 {{ emp_total }}명 → 직원 마스터</a>
     </div>
     <div class="kpi-card">
       <div class="text-xs text-slate-500">임원 / 주주</div>
@@ -110,7 +111,7 @@
       <label class="block"><span class="text-xs text-slate-500">이메일</span><input name="email" value="{{ ci.email or '' }}" class="input mt-1"></label>
       <label class="block"><span class="text-xs text-slate-500">홈페이지</span><input name="website" value="{{ ci.website or '' }}" class="input mt-1"></label>
       <label class="block"><span class="text-xs text-slate-500">자본금 (원)</span><input name="capital" value="{{ ci.capital|round|int if ci.capital else '' }}" class="input mt-1" inputmode="numeric"></label>
-      <label class="block"><span class="text-xs text-slate-500">임직원 수 (명)</span><input name="employee_count" value="{{ ci.employee_count or '' }}" class="input mt-1" inputmode="numeric"></label>
+      <label class="block"><span class="text-xs text-slate-500">임직원 수 (명) — 비우면 직원 마스터 재직 인원({{ emp_active }}명) 자동 표시</span><input name="employee_count" value="{{ ci.employee_count or '' }}" class="input mt-1" inputmode="numeric" placeholder="자동: {{ emp_active }}명"></label>
       <label class="block md:col-span-2"><span class="text-xs text-slate-500">비고</span><input name="note" value="{{ ci.note or '' }}" class="input mt-1"></label>
     </div>
   </div>

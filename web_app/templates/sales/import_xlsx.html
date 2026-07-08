@@ -63,6 +63,8 @@
 {% endif %}
 
 {% if preview %}
+{% include "_dedup_panel.html" %}
+
 <div class="card mb-4">
   <div class="flex justify-between items-center mb-3">
     <h3 class="font-semibold" style="color: var(--inviz-purple);">
@@ -79,14 +81,21 @@
     <table class="table">
       <thead class="sticky top-0">
         <tr>
-          <th class="w-12">#</th><th>일자</th><th>거래처</th><th>제품코드</th><th>품명</th>
+          <th class="w-12">#</th><th>상태</th><th>일자</th><th>거래처</th><th>제품코드</th><th>품명</th>
           <th>유형</th><th class="num">공급가액</th><th class="num">부가세</th><th class="num">합계</th><th>결제</th><th>비고</th>
         </tr>
       </thead>
       <tbody>
         {% for r in preview %}
-        <tr>
+        {% set ds = r._dup_status or 'new' %}
+        <tr class="{% if ds == 'db_dup' %}bg-amber-50{% elif ds == 'batch_dup' %}bg-orange-50{% endif %}">
           <td class="text-slate-400 text-xs">{{ r.row_no }}</td>
+          <td class="text-xs whitespace-nowrap">
+            {% if ds == 'new' %}<span class="badge badge-green">✨ 신규</span>
+            {% elif ds == 'db_dup' %}<span class="badge" style="background:#FEF3C7;color:#92400E;" title="DB id #{{ r._dup_existing_id }}와 중복">🗄 DB#{{ r._dup_existing_id }}</span>
+            {% elif ds == 'batch_dup' %}<span class="badge" style="background:#FED7AA;color:#9A3412;" title="같은 업로드의 행 {{ r._dup_first_idx }}와 중복">🔁 배치</span>
+            {% endif %}
+          </td>
           <td class="whitespace-nowrap">{{ r.txn_date }}</td>
           <td class="font-medium">{{ r.party_name }}</td>
           <td>{% if r.product_code %}<span class="badge badge-purple">{{ r.product_code }}</span>{% endif %}</td>
@@ -104,12 +113,19 @@
   </div>
 </div>
 
-<form method="post" action="/sales/import-xlsx/commit" class="flex gap-2 items-center">
+<form method="post" action="/sales/import-xlsx/commit" class="flex gap-2 items-center flex-wrap">
   <input type="hidden" name="payload" value='{{ encoded | e }}'>
-  <button class="btn btn-accent text-lg px-8" onclick="return confirm('{{ preview|length }}건을 매출에 적용합니다. 진행?')">
-    ✓ 적용 ({{ preview|length }}건)
+  {% set will_apply = dup_stats.new if dup_stats else preview|length %}
+  <button class="btn btn-accent text-lg px-8" onclick="return confirm('{{ will_apply }}건을 매출에 적용합니다. (중복 {{ (dup_stats.db_dup + dup_stats.batch_dup) if dup_stats else 0 }}건 스킵)\n진행?')">
+    ✓ 적용 ({{ will_apply }}건)
   </button>
   <a href="/sales/import-xlsx" class="btn btn-secondary">취소·다시 선택</a>
+  {% if dup_stats and (dup_stats.db_dup + dup_stats.batch_dup) > 0 %}
+  <label class="text-xs flex items-center gap-1 ml-3 cursor-pointer" title="기존 데이터와 중복되는 행까지 강제로 추가 — 권장하지 않음">
+    <input type="checkbox" name="force_dup" value="1">
+    <span class="text-amber-700">⚠ 중복 무시 (전체 {{ preview|length }}건 강제 적용)</span>
+  </label>
+  {% endif %}
   {% if errors %}
   <span class="text-xs text-amber-700">⚠️ 오류 {{ errors|length }}건은 제외하고 적용됩니다</span>
   {% endif %}

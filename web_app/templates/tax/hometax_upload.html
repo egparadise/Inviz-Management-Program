@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}홈택스 업로드 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<style>
+  .hu-grid { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .hu-grid th { background:#EBF1F0; border:1px solid #C9D6D3; padding:8px 6px; white-space:nowrap; }
+  .hu-grid td { border:1px solid #E2E8F0; padding:7px 6px; text-align:center; }
+  .hu-grid td.r { text-align:right; font-variant-numeric:tabular-nums; }
+  .hu-grid tbody tr:hover { background:#F5F9FF; }
+  .hu-step { display:flex; align-items:flex-start; gap:10px; }
+  .hu-step .n {
+    flex-shrink:0; width:26px; height:26px; border-radius:50%;
+    background:var(--inviz-purple); color:#fff; font-weight:700; font-size:13px;
+    display:flex; align-items:center; justify-content:center;
+  }
+</style>
+
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">
+    🏛 홈택스 업로드 <span class="text-sm font-normal text-slate-500">— 일괄발급 엑셀 작성</span>
+  </h1>
+  <div class="flex gap-2">
+    <a href="/tax/issue" class="btn btn-secondary">📝 계산서 작성</a>
+    <a href="/tax/list" class="btn btn-secondary">🗂 발급목록</a>
+    <a href="{{ hometax_url }}" target="_blank" class="btn" style="background:#1E40AF;color:#fff;">🏛 홈택스 열기</a>
+  </div>
+</div>
+
+{% if request.query_params.get('_msg') %}
+<div class="card mb-3" style="background:#FFF7ED; border:1px solid #FED7AA;">
+  <div class="text-sm" style="color:#9A3412;">{{ request.query_params.get('_msg') }}</div>
+</div>
+{% endif %}
+
+{% if not template_ok %}
+<div class="card mb-4 bg-red-50 border border-red-300">
+  <div class="text-sm text-red-700">❌ 공식 양식 파일(assets/hometax_bulk_template.xls)이 없습니다. 관리자에게 문의하세요.</div>
+</div>
+{% endif %}
+
+<!-- 사용 절차 -->
+<div class="card mb-4" style="border-left:4px solid var(--inviz-orange);">
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+    <div class="hu-step"><span class="n">1</span><div><b>대상 선택</b><br><span class="text-xs text-slate-500">아래 목록에서 발급할 계산서 체크</span></div></div>
+    <div class="hu-step"><span class="n">2</span><div><b>엑셀 작성·다운로드</b><br><span class="text-xs text-slate-500">국세청 공식 양식(.xls)으로 자동 작성</span></div></div>
+    <div class="hu-step"><span class="n">3</span><div><b>홈택스 업로드</b><br><span class="text-xs text-slate-500">조회/발급 → 전자세금계산서 → <b>일괄발급</b> → 파일 업로드</span></div></div>
+    <div class="hu-step"><span class="n">4</span><div><b>발급 완료 반영</b><br><span class="text-xs text-slate-500">발급 후 홈택스 목록 Excel을 매출 업로드하면 승인번호 자동 기록</span></div></div>
+  </div>
+  <div class="text-xs text-slate-500 mt-3">
+    💡 이 화면의 파일은 사용자가 공유한 <b>「세금계산서등록양식(일반)」</b> 원본 그대로 생성됩니다 (시트·안내문·컬럼 59개 유지, 데이터 7행부터).
+    위수탁 계산서는 별도 양식이 필요하여 제외됩니다.
+  </div>
+</div>
+
+<!-- 기간 필터 -->
+<form method="get" action="/tax/hometax-upload" class="card mb-3">
+  <div class="flex items-center gap-2 flex-wrap text-sm">
+    <span class="text-slate-600 font-semibold">작성일자</span>
+    <input type="date" name="date_from" value="{{ date_from }}" class="border rounded px-2 py-1">
+    ~
+    <input type="date" name="date_to" value="{{ date_to }}" class="border rounded px-2 py-1">
+    <button class="btn btn-primary text-sm px-4">조회</button>
+    <span class="text-xs text-slate-400 ml-2">국세청 미전송분(발행대기·발행기록·보류·예약)만 표시됩니다</span>
+  </div>
+</form>
+
+<!-- 대상 목록 + 다운로드 -->
+<form method="post" action="/tax/hometax-upload/export" id="huForm">
+<div class="card">
+  <div class="flex items-center justify-between mb-2">
+    <div class="text-sm text-slate-600">대상 <b>{{ rows|length }}</b>건 · 선택 <b id="huCount" class="text-purple-700">0</b>건</div>
+    <button type="submit" class="btn btn-accent px-6" {% if not rows or not template_ok %}disabled{% endif %}
+            onclick="return huConfirm()">📥 일괄발급 엑셀 작성·다운로드</button>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="hu-grid">
+      <thead>
+        <tr>
+          <th style="width:36px;"><input type="checkbox" id="huAll"
+              onclick="document.querySelectorAll('.huChk').forEach(c=>{if(!c.disabled)c.checked=this.checked}); huCount();"></th>
+          <th>종류</th><th>작성일자</th><th>공급받는자 등록번호</th><th>상호</th><th>대표자</th>
+          <th>품목</th><th>공급가액</th><th>세액</th><th>합계</th><th>상태</th><th>비고</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set kind_ok = (r.inv_kind or '일반') in ['일반','영세율'] %}
+        <tr class="{% if not kind_ok %}opacity-50{% endif %}">
+          <td>
+            <input type="checkbox" class="huChk" name="ids" value="{{ r.id }}"
+                   onclick="huCount()" {% if not kind_ok %}disabled title="위수탁 계산서 — 별도 양식 필요"{% endif %}>
+          </td>
+          <td>
+            {% if kind_ok %}<span class="badge badge-purple">{{ r.inv_kind or '일반' }}</span>
+            {% else %}<span class="badge badge-gray" title="일반 양식으로 업로드 불가">{{ r.inv_kind }}</span>{% endif %}
+          </td>
+          <td>{{ r.write_date or '' }}</td>
+          <td class="font-mono text-xs">{{ r.buyer_corp_no or '' }}</td>
+          <td class="truncate" style="max-width:150px; text-align:left;">{{ r.party_name or '' }}</td>
+          <td>{{ r.buyer_ceo or '' }}</td>
+          <td class="truncate" style="max-width:160px; text-align:left;">{{ r.item_desc or '' }}</td>
+          <td class="r">{{ r.supply|money }}</td>
+          <td class="r text-slate-500">{{ r.vat|money }}</td>
+          <td class="r font-semibold" style="color:var(--inviz-purple);">{{ r.total|money }}</td>
+          <td>
+            {% if r.status == 'issued' %}<span class="badge" style="background:#FEF3C7;color:#92400E;">발행기록</span>
+            {% elif r.status == 'draft' %}<span class="badge badge-gray">보류</span>
+            {% elif r.status == 'scheduled' %}<span class="badge badge-purple">예약</span>
+            {% else %}<span class="badge badge-orange">대기</span>{% endif %}
+          </td>
+          <td class="text-xs text-slate-500 truncate" style="max-width:140px;">{{ r.note or '' }}</td>
+        </tr>
+        {% endfor %}
+        {% if not rows %}
+        <tr><td colspan="12" class="py-10 text-slate-400">📄 조회 기간에 업로드 대상 계산서가 없습니다.<br>
+          <a href="/tax/issue" class="text-purple-700 underline text-sm">계산서 작성·발행</a>에서 먼저 작성하세요.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</form>
+
+<script>
+  function huCount() {
+    const n = document.querySelectorAll('.huChk:checked').length;
+    document.getElementById('huCount').textContent = n;
+  }
+  function huConfirm() {
+    const n = document.querySelectorAll('.huChk:checked').length;
+    if (!n) { alert('업로드할 계산서를 선택하세요.'); return false; }
+    return confirm(`${n}건을 국세청 공식 양식(.xls)으로 작성하여 다운로드합니다.\n\n다운로드 후: 홈택스 → 전자세금계산서 → 일괄발급 메뉴에서 업로드하세요.`);
+  }
+</script>
+{% endblock %}

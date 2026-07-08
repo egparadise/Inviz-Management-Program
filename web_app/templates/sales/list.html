@@ -142,7 +142,14 @@
         {% for name, cnt, supply in party_top %}
         <tr>
           <td class="text-slate-400">{{ loop.index }}</td>
-          <td>{{ name }}</td>
+          <td>
+            {% if name and name != '합 계' and name != '합계' %}
+            <a href="/parties/lookup?name={{ name|urlencode }}" target="_blank" rel="noopener"
+               class="text-purple-700 hover:underline" title="새 창에서 거래처 정보">{{ name }}</a>
+            {% else %}
+            <span class="text-slate-500 italic">{{ name }}</span>
+            {% endif %}
+          </td>
           <td class="num text-slate-500">{{ cnt }}</td>
           <td class="num font-semibold">{{ supply|money }}</td>
         </tr>
@@ -272,7 +279,12 @@
         {% for r in rows %}
         <tr>
           <td class="whitespace-nowrap">{{ r.txn_date|date }}</td>
-          <td>{{ r.party_name }}</td>
+          <td>
+            <a href="/parties/lookup?name={{ r.party_name|urlencode }}" target="_blank" rel="noopener"
+               class="text-purple-700 hover:underline font-medium" title="새 창에서 거래처 정보">{{ r.party_name }}</a>
+            {% set _bn = party_biz_map.get(r.party_code) if party_biz_map else None %}
+            {% if _bn %}<div class="text-xs text-slate-400 font-mono">{{ _bn }}</div>{% endif %}
+          </td>
           <td><span class="badge badge-purple">{{ r.product_code }}</span> {{ r.product_name }}</td>
           <td class="text-xs text-slate-600">{{ r.item_raw or '' }}</td>
           <td><span class="badge badge-gray">{{ r.sale_type or '기타' }}</span></td>

@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}거래처 상세 — {{ p.name }} — 인비즈{% endblock %}
+{% block content %}
+<style>
+  .pd-t { width:100%; border-collapse:collapse; font-size:13px; }
+  .pd-t th { background:#EBF5F3; border:1px solid #D5E3E0; padding:9px 12px; font-weight:600; text-align:left; width:180px; white-space:nowrap; }
+  .pd-t td { border:1px solid #D5E3E0; padding:7px 12px; background:#fff; }
+  .pd-t input[type=text] { border:1px solid #CBD5E1; border-radius:4px; padding:6px 9px; font-size:13px; }
+  .pd-btn { border:1px solid #2563EB; color:#2563EB; background:#fff; border-radius:6px; padding:9px 18px; font-size:14px; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; }
+  .pd-btn:hover { background:#EFF6FF; }
+  .pd-btn-primary { border:0; background:#2563EB; color:#fff; border-radius:6px; padding:9px 22px; font-size:14px; cursor:pointer; font-weight:700; }
+  .pd-btn-primary:hover { background:#1D4ED8; }
+  .pd-btn-danger { border:0; background:#2563EB; color:#fff; border-radius:6px; padding:9px 22px; font-size:14px; cursor:pointer; font-weight:700; }
+  .pd-btn-danger { background:#1E40AF; }
+  .pd-btn-danger:hover { background:#DC2626; }
+  .pd-calc { background:#0E7C7B; color:#fff; border:0; border-radius:4px; font-size:11px; padding:6px 10px; cursor:pointer; }
+</style>
+
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">
+    👤 거래처 상세 — {{ p.name }}
+    <span class="badge badge-purple font-mono">{{ p.code }}</span>
+  </h1>
+  <a href="/parties/{{ p.code }}" target="_blank" class="pd-btn text-xs">📂 거래내역 보기</a>
+</div>
+
+{% if request.query_params.get('_msg') %}
+<div class="card mb-3" style="background:#F0FDF4; border:1px solid #86EFAC;">
+  <div class="text-sm text-green-800">{{ request.query_params.get('_msg') }}</div>
+</div>
+{% endif %}
+
+<form method="post" action="/tax/parties/{{ p.code }}" id="pdForm">
+<!-- 기본 정보 (홈택스 양식) -->
+<div class="card mb-3" style="padding:0; overflow:hidden;">
+  <table class="pd-t">
+    <tr>
+      <th>거래처 사업자등록번호</th>
+      <td><span class="font-mono">{{ p.biz_no or '(미등록)' }}</span></td>
+      <th>종사업장번호</th>
+      <td><input type="text" name="sub_biz_no" value="{{ p.sub_biz_no or '' }}" style="width:110px;"></td>
+    </tr>
+    <tr>
+      <th><span class="text-red-600">*</span> 상호(법인명)</th>
+      <td><input type="text" name="name" value="{{ p.name }}" required style="width:260px;"></td>
+      <th><span class="text-red-600">*</span> 대표자</th>
+      <td><input type="text" name="ceo" value="{{ p.ceo or '' }}" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>사업장 주소</th>
+      <td colspan="3">
+        <div class="flex items-center gap-1">
+          <input type="text" name="address" value="{{ p.address or '' }}" class="flex-1">
+          <a href="https://map.naver.com/p/search/{{ (p.address or p.name)|urlencode }}" target="_blank" class="pd-calc" style="text-decoration:none;">주소조회</a>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <th>업태</th>
+      <td>
+        <div class="flex items-center gap-1">
+          <input type="text" name="biz_type" value="{{ p.biz_type or '' }}" style="width:170px;" list="bizTypeList">
+          <datalist id="bizTypeList">
+            <option>보건업</option><option>의료업</option><option>도매 및 소매업</option><option>제조업</option>
+            <option>서비스업</option><option>정보통신업</option><option>부동산업</option>
+          </datalist>
+          <button type="button" class="pd-calc" onclick="document.querySelector('[name=biz_type]').focus()">조회</button>
+        </div>
+      </td>
+      <th>종목</th>
+      <td><input type="text" name="biz_item" value="{{ p.biz_item or '' }}" style="width:170px;"></td>
+    </tr>
+    <tr>
+      <th>구분 / 주거래처</th>
+      <td colspan="3">
+        <select name="category" class="border rounded px-2 py-1 text-sm">
+          {% for c in ['병원','대리점','공급사','영상센터','교육/연구','금융','법인기타','기타'] %}
+          <option value="{{ c }}" {% if p.category == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+        <label class="ml-4 text-sm cursor-pointer">
+          <input type="checkbox" name="is_main" value="Y" {% if p.is_main == 'Y' %}checked{% endif %}> ⭐ 주거래처로 지정
+        </label>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<!-- 담당자 (주/부 2단 — 홈택스 양식) -->
+<div class="card mb-3" style="padding:0; overflow:hidden;">
+  <table class="pd-t">
+    <tr>
+      <th>주담당부서명</th>
+      <td><input type="text" name="dept_main" value="{{ p.dept_main or '' }}" style="width:220px;"></td>
+      <th>부담당부서명</th>
+      <td><input type="text" name="dept_sub" value="{{ p.dept_sub or '' }}" style="width:220px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자명</th>
+      <td><input type="text" name="contact_person" value="{{ p.contact_person or '' }}" style="width:160px;"></td>
+      <th>부담당자명</th>
+      <td><input type="text" name="contact_person2" value="{{ p.contact_person2 or '' }}" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자전화번호</th>
+      <td><input type="text" name="phone" value="{{ p.phone or '' }}" style="width:160px;"></td>
+      <th>부담당자전화번호</th>
+      <td><input type="text" name="phone2" value="{{ p.phone2 or '' }}" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자휴대전화번호</th>
+      <td><input type="text" name="mobile" value="{{ p.mobile or '' }}" style="width:160px;"></td>
+      <th>부담당자휴대전화번호</th>
+      <td><input type="text" name="mobile2" value="{{ p.mobile2 or '' }}" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자팩스번호</th>
+      <td><input type="text" name="fax" value="{{ p.fax or '' }}" style="width:160px;"></td>
+      <th>부담당자팩스번호</th>
+      <td><input type="text" name="fax2" value="{{ p.fax2 or '' }}" style="width:160px;"></td>
+    </tr>
+    <tr>
+      {% set e1 = (p.email or '').split('@') %}
+      {% set e2 = (p.email2 or '').split('@') %}
+      <th>주담당자이메일</th>
+      <td>
+        <div class="flex items-center gap-1">
+          <input type="text" name="email_local" value="{{ e1[0] if e1|length > 1 else (p.email or '') }}" style="width:110px;">
+          <span>@</span>
+          <input type="text" name="email_domain" id="emailDomain1" value="{{ e1[1] if e1|length > 1 else '' }}" style="width:130px;">
+          <select class="border rounded px-1 py-1 text-xs" onchange="if(this.value)document.getElementById('emailDomain1').value=this.value;">
+            <option value="">직접입력</option><option>naver.com</option><option>gmail.com</option>
+            <option>daum.net</option><option>hanmail.net</option><option>hometax.go.kr</option>
+          </select>
+        </div>
+      </td>
+      <th>부담당자이메일</th>
+      <td>
+        <div class="flex items-center gap-1">
+          <input type="text" name="email2_local" value="{{ e2[0] if e2|length > 1 else (p.email2 or '') }}" style="width:110px;">
+          <span>@</span>
+          <input type="text" name="email2_domain" id="emailDomain2" value="{{ e2[1] if e2|length > 1 else '' }}" style="width:130px;">
+          <select class="border rounded px-1 py-1 text-xs" onchange="if(this.value)document.getElementById('emailDomain2').value=this.value;">
+            <option value="">직접입력</option><option>naver.com</option><option>gmail.com</option>
+            <option>daum.net</option><option>hanmail.net</option><option>hometax.go.kr</option>
+          </select>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <th>주담당자 비고</th>
+      <td><input type="text" name="contact_note" value="{{ p.contact_note or '' }}" class="w-full"></td>
+      <th>부담당자 비고</th>
+      <td><input type="text" name="contact_note2" value="{{ p.contact_note2 or '' }}" class="w-full"></td>
+    </tr>
+  </table>
+</div>
+
+<!-- 하단 버튼 (홈택스 배치) -->
+<div class="flex items-center justify-between mt-4">
+  <a href="/tax/parties" class="pd-btn">목록</a>
+  <div class="flex gap-2">
+    <a href="/products" target="_blank" class="pd-btn">품목관리</a>
+    <button type="button" class="pd-btn" onclick="document.querySelector('[name=contact_person]').focus(); window.scrollTo({top: 400, behavior:'smooth'});">담당자관리</button>
+    <a href="/parties/enrich" target="_blank" class="pd-btn">일괄등록</a>
+    <a href="/tax/parties/new" class="pd-btn">건별등록</a>
+    <button type="submit" class="pd-btn-primary">수정하기</button>
+    <button type="button" class="pd-btn-danger"
+            onclick="if(confirm('{{ p.name }} 거래처를 삭제합니다.\n(자동 DB 백업 후 진행 — 매출·매입 거래 데이터는 유지)\n진행할까요?')){const f=document.createElement('form');f.method='post';f.action='/tax/parties/{{ p.code }}/delete';document.body.appendChild(f);f.submit();}">삭제하기</button>
+  </div>
+</div>
+</form>
+{% endblock %}

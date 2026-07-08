@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전자계약 서명 — {{ row.name }}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --inviz-purple:#6B2C91; --inviz-orange:#F47521; }
+  body { font-family:'Pretendard','Apple SD Gothic Neo',-apple-system,sans-serif; background:#F1F5F9; }
+  .doc { background:#fff; box-shadow:0 2px 12px rgba(0,0,0,0.08); }
+  .art-head { font-weight:700; margin-top:18px; margin-bottom:4px; }
+  .art-body { white-space:pre-wrap; line-height:1.75; color:#334155; }
+  .sig-canvas { border:2px dashed #CBD5E1; border-radius:8px; background:#FAFBFC; touch-action:none; cursor:crosshair; width:100%; height:150px; }
+  .sig-canvas.done { border-style:solid; border-color:#10B981; }
+  @media print {
+    .no-print { display:none !important; }
+    body { background:#fff; }
+    .doc { box-shadow:none; }
+  }
+</style>
+</head>
+<body>
+<div class="max-w-4xl mx-auto py-8 px-4">
+
+  <!-- 상단 바 -->
+  <div class="flex items-center justify-between mb-4 no-print">
+    <div class="flex items-center gap-2">
+      {% if not public %}<a href="/contracts" class="text-sm text-slate-500 hover:underline">← 계약 목록</a>{% endif %}
+      <span class="text-xs px-2 py-1 rounded-full font-semibold
+        {% if row.sign_status == 'complete' %}bg-green-100 text-green-700
+        {% elif row.sign_status == 'partial' %}bg-amber-100 text-amber-700
+        {% else %}bg-slate-200 text-slate-600{% endif %}">
+        {% if row.sign_status == 'complete' %}✓ 양측 서명 완료
+        {% elif row.sign_status == 'partial' %}◐ 일부 서명됨
+        {% else %}○ 서명 대기{% endif %}
+      </span>
+    </div>
+    <div class="flex gap-2">
+      {% if not public %}
+      <button onclick="copyShareLink()" class="text-sm px-3 py-2 rounded-lg border border-purple-300 text-purple-700 hover:bg-purple-50"
+              title="고객에게 보낼 서명 링크 복사">🔗 고객 서명 링크 복사</button>
+      {% endif %}
+      <button onclick="window.print()" class="text-sm px-3 py-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100">🖨 인쇄</button>
+    </div>
+  </div>
+
+  <!-- 계약서 문서 -->
+  <div class="doc rounded-xl p-10">
+    <h1 class="text-center text-2xl font-bold tracking-widest mb-2" style="color:var(--inviz-purple);">
+      {{ doc.title if doc else (row.doc_kind or row.name) }}
+    </h1>
+    <div class="text-center text-xs text-slate-400 mb-8">계약번호: {{ row.id }}</div>
+
+    <!-- 당사자 -->
+    <p class="text-sm leading-7 text-slate-700 mb-4">
+      <b>{{ row.party_name or "＿＿＿＿＿＿" }}</b> (이하 "갑"이라 한다)과(와)
+      <b>{{ supplier.name }}</b> (이하 "을"이라 한다)은(는)
+      {% if doc %}아래와 같이 {{ doc.title }}을(를) 체결한다.{% else %}아래와 같이 계약을 체결한다.{% endif %}
+    </p>
+
+    {% if doc %}
+    <!-- 표준 양식 본문 -->
+    {% for a in doc.articles %}
+    <div class="art-head text-slate-800">{{ a.head }}</div>
+    <div class="art-body text-sm">{{ a.body }}</div>
+    {% endfor %}
+    {% endif %}
+
+    {% if row.file_path %}
+    <!-- 첨부 계약서 파일 -->
+    <div class="mt-8 pt-6 border-t">
+      <div class="text-sm font-semibold text-slate-700 mb-2">📎 첨부 계약서: {{ row.file_name }}</div>
+      {% if is_image %}
+      <img src="{% if public %}/esign/{{ row.sign_token }}/file{% else %}/contracts/{{ row.id }}/file{% endif %}"
+           class="w-full rounded border" alt="계약서">
+      {% elif is_pdf %}
+      <iframe src="{% if public %}/esign/{{ row.sign_token }}/file{% else %}/contracts/{{ row.id }}/file{% endif %}"
+              class="w-full rounded border" style="height:640px;"></iframe>
+      {% else %}
+      <a href="{% if public %}/esign/{{ row.sign_token }}/file{% else %}/contracts/{{ row.id }}/file{% endif %}"
+         class="text-purple-700 underline text-sm">파일 내려받기 ({{ file_ext }})</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- 계약 요약 -->
+    <table class="w-full mt-8 text-sm" style="border-collapse:collapse;">
+      <tr>
+        <th class="border px-3 py-2 bg-slate-50 text-left w-32">계약기간</th>
+        <td class="border px-3 py-2">{{ row.start_date or '-' }} ~ {{ row.end_date or '-' }}</td>
+        <th class="border px-3 py-2 bg-slate-50 text-left w-32">계약금액</th>
+        <td class="border px-3 py-2 text-right font-semibold">{{ "{:,}".format(row.contract_amount | int) if row.contract_amount else '-' }} 원</td>
+      </tr>
+      <tr>
+        <th class="border px-3 py-2 bg-slate-50 text-left">품명</th>
+        <td class="border px-3 py-2">{{ row.item_name or '-' }}</td>
+        <th class="border px-3 py-2 bg-slate-50 text-left">대금지불</th>
+        <td class="border px-3 py-2">{{ row.payment_term or '-' }}</td>
+      </tr>
+    </table>
+
+    <p class="text-sm text-slate-700 mt-8 mb-2">
+      본 계약의 성립을 증명하기 위하여 계약서를 전자적으로 작성하고, 갑과 을이 아래에 서명한다.
+    </p>
+    <div class="text-center text-sm text-slate-600 my-4 font-semibold" id="signDate">
+      {{ (row.signed_date or row.created_at.date() if row.created_at else '')|string }}
+    </div>
+
+    <!-- ===== 서명란 (갑/을) ===== -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
+      <!-- 갑 (고객) -->
+      <div>
+        <div class="text-sm font-bold text-slate-700 mb-1">갑 (고객)</div>
+        <div class="text-xs text-slate-500 mb-2">{{ row.party_name or '' }}</div>
+        {% if row.customer_sign %}
+        <div class="border-2 border-green-400 rounded-lg p-2 bg-green-50">
+          <img src="{{ row.customer_sign }}" style="height:110px; margin:auto;" alt="고객 서명">
+          <div class="text-center text-xs text-green-700 mt-1">
+            ✓ {{ row.customer_signer }} · {{ row.customer_signed_at.strftime('%Y-%m-%d %H:%M') if row.customer_signed_at else '' }} 서명됨
+          </div>
+        </div>
+        {% else %}
+        <canvas id="padCustomer" class="sig-canvas"></canvas>
+        <div class="flex items-center gap-2 mt-2 no-print">
+          <input id="nameCustomer" type="text" placeholder="서명자 성명"
+                 class="border rounded px-2 py-1 text-sm flex-1">
+          <button onclick="clearPad('Customer')" class="text-xs px-2 py-1 border rounded text-slate-500">지우기</button>
+          <button onclick="saveSign('customer')" class="text-xs px-3 py-1 rounded text-white font-semibold" style="background:var(--inviz-purple);">✍ 서명 저장</button>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- 을 (공급자) -->
+      <div>
+        <div class="text-sm font-bold text-slate-700 mb-1">을 (공급자)</div>
+        <div class="text-xs text-slate-500 mb-2">{{ supplier.name }} {{ supplier.biz_no }} · 대표 {{ supplier.ceo }}</div>
+        {% if row.supplier_sign %}
+        <div class="border-2 border-green-400 rounded-lg p-2 bg-green-50">
+          <img src="{{ row.supplier_sign }}" style="height:110px; margin:auto;" alt="공급자 서명">
+          <div class="text-center text-xs text-green-700 mt-1">
+            ✓ {{ row.supplier_signer }} · {{ row.supplier_signed_at.strftime('%Y-%m-%d %H:%M') if row.supplier_signed_at else '' }} 서명됨
+          </div>
+        </div>
+        {% elif public %}
+        <div class="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center text-slate-400 text-sm" style="height:150px; display:flex; align-items:center; justify-content:center;">
+          공급자({{ supplier.name }}) 서명 대기
+        </div>
+        {% else %}
+        <canvas id="padSupplier" class="sig-canvas"></canvas>
+        <div class="flex items-center gap-2 mt-2 no-print">
+          <input id="nameSupplier" type="text" placeholder="서명자 성명" value="{{ supplier.ceo }}"
+                 class="border rounded px-2 py-1 text-sm flex-1">
+          <button onclick="clearPad('Supplier')" class="text-xs px-2 py-1 border rounded text-slate-500">지우기</button>
+          <button onclick="saveSign('supplier')" class="text-xs px-3 py-1 rounded text-white font-semibold" style="background:var(--inviz-orange);">✍ 서명 저장</button>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="text-center text-xs text-slate-400 mt-4">
+    본 전자서명은 양 당사자의 합의를 전자적으로 기록한 것입니다 · 인비즈 경영관리 시스템
+  </div>
+</div>
+
+<script>
+  const IS_PUBLIC = {{ 'true' if public else 'false' }};
+  const SIGN_URL_SUPPLIER = "/contracts/{{ row.id }}/sign";
+  const SIGN_URL_CUSTOMER = IS_PUBLIC ? "/esign/{{ row.sign_token }}/sign" : "/contracts/{{ row.id }}/sign";
+
+  // ===== 서명 캔버스 패드 =====
+  function initPad(id) {
+    const c = document.getElementById(id);
+    if (!c) return null;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = c.getBoundingClientRect();
+    c.width = rect.width * dpr;
+    c.height = rect.height * dpr;
+    const ctx = c.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#1E293B';
+    let drawing = false, drew = false;
+
+    const pos = e => {
+      const r = c.getBoundingClientRect();
+      const p = e.touches ? e.touches[0] : e;
+      return [p.clientX - r.left, p.clientY - r.top];
+    };
+    const start = e => { drawing = true; const [x, y] = pos(e); ctx.beginPath(); ctx.moveTo(x, y); e.preventDefault(); };
+    const move = e => { if (!drawing) return; const [x, y] = pos(e); ctx.lineTo(x, y); ctx.stroke(); drew = true; e.preventDefault(); };
+    const end = () => { drawing = false; };
+
+    c.addEventListener('mousedown', start); c.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    c.addEventListener('touchstart', start, {passive: false});
+    c.addEventListener('touchmove', move, {passive: false});
+    c.addEventListener('touchend', end);
+    return { canvas: c, ctx, hasInk: () => drew, reset: () => { ctx.clearRect(0, 0, rect.width, rect.height); drew = false; } };
+  }
+
+  const pads = {
+    Customer: initPad('padCustomer'),
+    Supplier: initPad('padSupplier'),
+  };
+
+  function clearPad(which) { pads[which] && pads[which].reset(); }
+
+  async function saveSign(role) {
+    const which = role === 'customer' ? 'Customer' : 'Supplier';
+    const pad = pads[which];
+    if (!pad) return;
+    if (!pad.hasInk()) { alert('서명란에 서명을 그려주세요. (마우스 또는 터치)'); return; }
+    const name = (document.getElementById('name' + which)?.value || '').trim();
+    if (!name) { alert('서명자 성명을 입력하세요.'); return; }
+    if (!confirm(`${name} 님의 서명을 저장합니다. 저장 후에는 수정할 수 없습니다. 진행?`)) return;
+
+    const fd = new FormData();
+    if (!IS_PUBLIC) fd.append('role', role);
+    fd.append('signer', name);
+    fd.append('sign_data', pad.canvas.toDataURL('image/png'));
+    const url = role === 'customer' ? SIGN_URL_CUSTOMER : SIGN_URL_SUPPLIER;
+    try {
+      const r = await fetch(url, { method: 'POST', body: fd });
+      const d = await r.json();
+      if (d.ok) {
+        alert('✓ 서명이 저장되었습니다.' + (d.sign_status === 'complete' ? '\n🎉 양측 서명이 모두 완료되었습니다!' : ''));
+        location.reload();
+      } else {
+        alert('저장 실패');
+      }
+    } catch (e) { alert('통신 오류: ' + e); }
+  }
+
+  function copyShareLink() {
+    const url = location.origin + "/esign/{{ row.sign_token }}";
+    navigator.clipboard.writeText(url).then(
+      () => alert('✓ 고객 서명 링크가 복사되었습니다.\n\n' + url + '\n\n이 링크를 고객에게 보내면 로그인 없이 계약서 확인 + 서명할 수 있습니다.'),
+      () => prompt('아래 링크를 복사하세요:', url));
+  }
+</script>
+</body>
+</html>

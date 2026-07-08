@@ -153,6 +153,8 @@ NAV_ITEMS = [
         {"key": "product-sales", "path": "/product-sales", "icon": "📊", "label": "제품별 매출"},
         {"key": "products",      "path": "/products",      "icon": "📦", "label": "제품"},
         {"key": "tax-issue",     "path": "/tax/issue",     "icon": "🧾", "label": "계산서 작성·발행"},
+        {"key": "tax-list",      "path": "/tax/list",      "icon": "🗂", "label": "발급목록 조회"},
+        {"key": "tax-hometax",   "path": "/tax/hometax-upload", "icon": "🏛", "label": "홈택스 업로드"},
      ]},
     {"key": "purchases",   "path": "/purchases",   "icon": "🛒", "label": "매입",
      "children": [

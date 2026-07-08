@@ -45,8 +45,15 @@
           <td class="num {% if r.unpaid_amount > 0 %}text-red-600 font-semibold{% endif %}">{{ r.unpaid_amount|money }}</td>
           <td>{% if r.status == '진행' %}<span class="badge badge-green">진행</span>{% elif r.status == '만료' %}<span class="badge badge-gray">만료</span>{% else %}<span class="badge badge-red">{{ r.status or '' }}</span>{% endif %}</td>
           <td class="text-xs">{{ r.owner or '' }}</td>
-          <td>
-            <a href="/contracts/{{ r.id }}/edit" class="text-blue-600 text-xs">수정</a>
+          <td class="whitespace-nowrap">
+            <a href="/contracts/{{ r.id }}/sign" class="text-xs"
+               title="{% if r.sign_status == 'complete' %}양측 서명 완료{% elif r.sign_status == 'partial' %}일부 서명됨{% else %}전자서명 페이지{% endif %}">
+              {% if r.sign_status == 'complete' %}<span class="text-green-600 font-bold">✍✓</span>
+              {% elif r.sign_status == 'partial' %}<span class="text-amber-600 font-bold">✍◐</span>
+              {% else %}<span class="text-purple-700">✍</span>{% endif %}
+            </a>
+            {% if r.file_path %}<a href="/contracts/{{ r.id }}/file" target="_blank" class="text-xs ml-1" title="계약서 파일: {{ r.file_name }}">📎</a>{% endif %}
+            <a href="/contracts/{{ r.id }}/edit" class="text-blue-600 text-xs ml-1">수정</a>
             <form method="post" action="/contracts/{{ r.id }}/delete" class="inline" onsubmit="return confirm('삭제?')">
               <button class="text-red-600 text-xs ml-2">삭제</button>
             </form>

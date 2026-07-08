@@ -72,3 +72,6 @@ desktop.ini
 *.swp
 .idea/
 .vscode/
+
+# ----- 계약서 업로드 파일 (고객 계약 원본 — 커밋 금지) -----
+web_app/contract_files/

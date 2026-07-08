@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}거래처정보 관리 — 인비즈 경영관리{% endblock %}
+{% block content %}
+<style>
+  .hp-t { width:100%; border-collapse:collapse; font-size:13px; }
+  .hp-t th { background:#EBF5F3; border:1px solid #D5E3E0; padding:9px 12px; font-weight:600; text-align:left; width:160px; white-space:nowrap; }
+  .hp-t td { border:1px solid #D5E3E0; padding:8px 12px; background:#fff; }
+  .hp-grid { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .hp-grid th { background:#EBF1F0; border:1px solid #C9D6D3; padding:8px 6px; white-space:nowrap; }
+  .hp-grid td { border:1px solid #E2E8F0; padding:7px 6px; text-align:center; }
+  .hp-grid tbody tr:hover { background:#F5F9FF; cursor:pointer; }
+  .hp-btn { border:1px solid #2563EB; color:#2563EB; background:#fff; border-radius:5px; padding:6px 12px; font-size:12.5px; cursor:pointer; }
+  .hp-btn:hover { background:#EFF6FF; }
+  .hp-search { background:#1E40AF; color:#fff; border:0; border-radius:6px; padding:10px 26px; font-weight:700; cursor:pointer; }
+</style>
+
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold flex items-center gap-2" style="color: var(--inviz-purple);">👥 거래처정보 관리</h1>
+  <div class="flex gap-2">
+    <a href="/tax/parties/new" class="hp-btn" style="background:#2563EB;color:#fff;">+ 건별등록</a>
+    <a href="/tax/issue" class="hp-btn">건별발급 이동</a>
+  </div>
+</div>
+
+{% if request.query_params.get('_msg') %}
+<div class="card mb-3" style="background:#F0FDF4; border:1px solid #86EFAC;">
+  <div class="text-sm text-green-800">{{ request.query_params.get('_msg') }}</div>
+</div>
+{% endif %}
+
+<!-- 우리 회사 정보 -->
+<div class="card mb-3" style="padding:0; overflow:hidden;">
+  <table class="hp-t">
+    <tr>
+      <th>사업자등록번호</th><td>{{ company.corp_no }}</td>
+      <th>성명</th><td>{{ company.ceo }}</td>
+    </tr>
+    <tr>
+      <th>상호(법인명)</th><td>{{ company.name }}</td>
+      <th>사업장주소</th><td>{{ company.address }}</td>
+    </tr>
+  </table>
+</div>
+
+<!-- 검색 -->
+<form method="get" action="/tax/parties">
+<div class="card mb-3" style="padding:0; overflow:hidden;">
+  <table class="hp-t">
+    <tr>
+      <th>거래처 사업자등록번호</th>
+      <td><input type="text" name="biz_no" value="{{ filter.biz_no }}" class="border rounded px-2 py-1" placeholder="000-00-00000" style="width:170px;"></td>
+      <th>거래처명</th>
+      <td>
+        <div class="flex items-center gap-3">
+          <input type="text" name="name" value="{{ filter.name }}" class="border rounded px-2 py-1" style="width:200px;">
+          <button type="submit" class="hp-search">조회</button>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <th>대표자명</th>
+      <td colspan="3"><input type="text" name="ceo" value="{{ filter.ceo }}" class="border rounded px-2 py-1" style="width:170px;"></td>
+    </tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="flex items-center justify-end gap-1 mb-2">
+    <a href="/tax/parties/export.xlsx" class="hp-btn">내려받기 ⬇</a>
+    <select name="sort" class="border rounded px-2 py-1 text-xs">
+      <option value="name" {% if filter.sort == 'name' %}selected{% endif %}>거래처명</option>
+      <option value="biz_no" {% if filter.sort == 'biz_no' %}selected{% endif %}>등록번호</option>
+      <option value="ceo" {% if filter.sort == 'ceo' %}selected{% endif %}>대표자</option>
+      <option value="created" {% if filter.sort == 'created' %}selected{% endif %}>등록일자</option>
+    </select>
+    <select name="dir" class="border rounded px-2 py-1 text-xs">
+      <option value="asc" {% if filter.dir == 'asc' %}selected{% endif %}>오름차순</option>
+      <option value="desc" {% if filter.dir == 'desc' %}selected{% endif %}>내림차순</option>
+    </select>
+    <select name="per_page" class="border rounded px-2 py-1 text-xs">
+      {% for n in [10, 20, 50, 100] %}<option value="{{ n }}" {% if filter.per_page == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="hp-btn" style="background:#334155;color:#fff;border-color:#334155;">확인</button>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="hp-grid">
+      <thead>
+        <tr>
+          <th style="width:36px;"><input type="checkbox" onclick="document.querySelectorAll('.pchk').forEach(c=>c.checked=this.checked)"></th>
+          <th>거래처등록번호</th><th>거래처명</th><th>대표자</th><th>사업장주소</th>
+          <th>업태</th><th>종목</th><th>등록일자</th><th>변경일자</th><th>주거래처</th><th>상세보기</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr ondblclick="location.href='/tax/parties/{{ r.code }}'" title="더블클릭 → 상세">
+          <td><input type="checkbox" class="pchk" value="{{ r.code }}" onclick="event.stopPropagation()"></td>
+          <td class="font-mono text-xs">{{ r.biz_no or '' }}</td>
+          <td class="truncate" style="max-width:170px; text-align:left;">{{ r.name }}</td>
+          <td>{{ r.ceo or '' }}</td>
+          <td class="truncate text-left" style="max-width:220px;">{{ r.address or '' }}</td>
+          <td class="truncate" style="max-width:90px;">{{ r.biz_type or '' }}</td>
+          <td class="truncate" style="max-width:90px;">{{ r.biz_item or '' }}</td>
+          <td class="text-xs">{{ r.created_at.strftime('%Y-%m-%d') if r.created_at else '- -' }}</td>
+          <td class="text-xs">{{ r.updated_at.strftime('%Y-%m-%d') if r.updated_at else '- -' }}</td>
+          <td>{{ r.is_main or 'N' }}</td>
+          <td><a href="/tax/parties/{{ r.code }}" class="hp-btn text-xs px-2 py-1" onclick="event.stopPropagation()">상세보기</a></td>
+        </tr>
+        {% endfor %}
+        {% if not rows %}<tr><td colspan="11" class="py-8 text-slate-400">조회된 거래처가 없습니다.</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="flex items-center justify-between mt-3">
+    <div></div>
+    <div class="flex items-center gap-2 text-sm">
+      {% set qs = 'biz_no=' ~ filter.biz_no ~ '&name=' ~ filter.name ~ '&ceo=' ~ filter.ceo ~ '&sort=' ~ filter.sort ~ '&dir=' ~ filter.dir ~ '&per_page=' ~ filter.per_page %}
+      {% if page > 1 %}<a href="?{{ qs }}&page={{ page-1 }}" class="text-slate-600 hover:underline">&lt; 이전</a>{% endif %}
+      <span class="px-3 py-1 rounded bg-slate-700 text-white text-xs font-bold">{{ page }}</span>
+      {% if page < total_pages %}<a href="?{{ qs }}&page={{ page+1 }}" class="text-slate-600 hover:underline">다음 &gt;</a>{% endif %}
+    </div>
+    <div class="text-xs text-slate-500">🗎 총 {{ total_count|money }}건</div>
+  </div>
+</div>
+</form>
+{% endblock %}

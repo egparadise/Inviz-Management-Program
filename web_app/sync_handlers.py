@@ -150,6 +150,56 @@ def delete_by_source(db: Session, model, source_file: str) -> int:
     return db.execute(stmt).rowcount or 0
 
 
+# ============ User Intent Guard — 사용자 의도 보존 ============
+_KIND_MAP = {
+    "Sale": "sale", "Purchase": "purchase", "Payroll": "payroll",
+    "Expense": "expense", "Receivable": "receivable", "Loan": "loan",
+    "Rental": "rental", "Severance": "severance",
+}
+
+
+def _infer_kind(row) -> str:
+    return _KIND_MAP.get(type(row).__name__, type(row).__name__.lower())
+
+
+def save_bulk_with_intent(db: Session, kind_or_none, bulk: list,
+                          source_file: str = None) -> tuple[int, int]:
+    """bulk_save_objects 대체 — User Intent Ledger를 참조하여
+    사용자가 이전에 삭제/편집한 행은 재삽입하지 않는다.
+
+    kind_or_none: "sale" 같은 문자열 또는 None(첫 행의 클래스로 자동 감지)
+    반환: (실제로_저장된_수, 차단된_수)
+    """
+    if not bulk:
+        return 0, 0
+    kind = kind_or_none or _infer_kind(bulk[0])
+    try:
+        from user_intent import filter_bulk_by_intent
+        keep, blocked_count, _ = filter_bulk_by_intent(db, kind, bulk, source_file=source_file)
+    except Exception as e:
+        print(f"[sync] user_intent 필터 실패 — 전체 저장: {e}")
+        keep = bulk
+        blocked_count = 0
+    if keep:
+        db.bulk_save_objects(keep)
+    return len(keep), blocked_count
+
+
+def guard_and_save(db: Session, bulk: list, source_file: str = None) -> int:
+    """단순 헬퍼 — 기존 `db.bulk_save_objects(bulk)`의 in-place 대체.
+    kind는 자동 감지. 차단 수만 print하고 실제 저장 수 반환."""
+    if not bulk:
+        return 0
+    saved, blocked = save_bulk_with_intent(db, None, bulk, source_file=source_file)
+    if blocked:
+        try:
+            fn = source_file or getattr(bulk[0], "source_file", "?")
+        except Exception:
+            fn = "?"
+        print(f"[sync] {fn}: 사용자 의도 보존 — {blocked}행 재삽입 차단")
+    return saved
+
+
 # ============ 핸들러: 매출 (매출분류) ============
 def handler_sale_classification(db: Session, path: Path) -> dict:
     """매출분류 파일 — 2021/2022/2023 시트 long-format"""
@@ -215,10 +265,14 @@ def handler_sale_classification(db: Session, path: Path) -> dict:
                 source_file=source_file, source_sheet=sh, source_row=idx + 2,
             ))
             added += 1
+    intent_blocked = 0
     if bulk:
-        db.bulk_save_objects(bulk)
+        added_actual, intent_blocked = save_bulk_with_intent(db, "sale", bulk, source_file=source_file)
+        if intent_blocked:
+            print(f"[sync] {source_file}: 사용자 의도 보존 — {intent_blocked}행 재삽입 차단")
+        added = added_actual
         db.commit()
-    return {"rows_added": added, "rows_removed": removed}
+    return {"rows_added": added, "rows_removed": removed, "rows_intent_blocked": intent_blocked}
 
 
 # ============ 핸들러: 매출 (외상매출금) ============
@@ -277,10 +331,13 @@ def handler_sale_ar(db: Session, path: Path) -> dict:
                     source_file=source_file, source_sheet=sh, source_row=idx + 3,
                 ))
                 added += 1
+    intent_blocked = 0
     if bulk:
-        db.bulk_save_objects(bulk)
+        added, intent_blocked = save_bulk_with_intent(db, "sale", bulk, source_file=source_file)
+        if intent_blocked:
+            print(f"[sync] {source_file}: 사용자 의도 보존 — {intent_blocked}행 재삽입 차단")
         db.commit()
-    return {"rows_added": added, "rows_removed": removed}
+    return {"rows_added": added, "rows_removed": removed, "rows_intent_blocked": intent_blocked}
 
 
 # ============ 핸들러: 매입 (외상매입금) ============
@@ -339,10 +396,13 @@ def handler_purchase_ap(db: Session, path: Path) -> dict:
                     source_file=source_file, source_sheet=sh, source_row=idx + 3,
                 ))
                 added += 1
+    intent_blocked = 0
     if bulk:
-        db.bulk_save_objects(bulk)
+        added, intent_blocked = save_bulk_with_intent(db, "purchase", bulk, source_file=source_file)
+        if intent_blocked:
+            print(f"[sync] {source_file}: 사용자 의도 보존 — {intent_blocked}행 재삽입 차단")
         db.commit()
-    return {"rows_added": added, "rows_removed": removed}
+    return {"rows_added": added, "rows_removed": removed, "rows_intent_blocked": intent_blocked}
 
 
 # ============ 핸들러: 거래처별 세금계산서 (매출+매입) ============
@@ -418,12 +478,18 @@ def handler_sale_purchase_invoice(db: Session, path: Path) -> dict:
                                               purchase_type="정기", **params))
                     added_p += 1
 
+    intent_blocked = 0
     if sale_bulk:
-        db.bulk_save_objects(sale_bulk)
+        added_s, blocked_s = save_bulk_with_intent(db, "sale", sale_bulk, source_file=source_file)
+        intent_blocked += blocked_s
     if purch_bulk:
-        db.bulk_save_objects(purch_bulk)
+        added_p, blocked_p = save_bulk_with_intent(db, "purchase", purch_bulk, source_file=source_file)
+        intent_blocked += blocked_p
+    if intent_blocked:
+        print(f"[sync] {source_file}: 사용자 의도 보존 — {intent_blocked}행 재삽입 차단")
     db.commit()
-    return {"rows_added": added_s + added_p, "rows_removed": removed}
+    return {"rows_added": added_s + added_p, "rows_removed": removed,
+            "rows_intent_blocked": intent_blocked}
 
 
 # ============ 핸들러: 계약관리 ============
@@ -572,7 +638,7 @@ def handler_receivable(db: Session, path: Path) -> dict:
             ))
             added += 1
     if bulk:
-        db.bulk_save_objects(bulk)
+        guard_and_save(db, bulk, source_file=source_file)
         db.commit()
     return {"rows_added": added, "rows_removed": removed}
 
@@ -617,7 +683,7 @@ def handler_loan_movement(db: Session, path: Path) -> dict:
             ))
             added += 1
     if bulk:
-        db.bulk_save_objects(bulk)
+        guard_and_save(db, bulk, source_file=source_file)
         db.commit()
     return {"rows_added": added, "rows_removed": removed}
 
@@ -752,7 +818,7 @@ def handler_payroll_dept(db: Session, path: Path) -> dict:
             ))
             added += 1
     if bulk:
-        db.bulk_save_objects(bulk)
+        guard_and_save(db, bulk, source_file=source_file)
         db.commit()
     return {"rows_added": added, "rows_removed": removed}
 
@@ -815,7 +881,7 @@ def handler_payroll_ledger(db: Session, path: Path) -> dict:
             ))
             added += 1
     if bulk:
-        db.bulk_save_objects(bulk)
+        guard_and_save(db, bulk, source_file=source_file)
         db.commit()
     return {"rows_added": added, "rows_removed": 0}
 
@@ -860,7 +926,7 @@ def handler_expense_monthly(db: Session, path: Path) -> dict:
         ))
         added += 1
     if bulk:
-        db.bulk_save_objects(bulk)
+        guard_and_save(db, bulk, source_file=source_file)
         db.commit()
     return {"rows_added": added, "rows_removed": removed}
 
@@ -901,7 +967,7 @@ def handler_rental(db: Session, path: Path) -> dict:
             ))
             added += 1
     if bulk:
-        db.bulk_save_objects(bulk)
+        guard_and_save(db, bulk, source_file=source_file)
         db.commit()
     return {"rows_added": added, "rows_removed": removed}
 
@@ -956,7 +1022,7 @@ def handler_severance(db: Session, path: Path) -> dict:
             ))
             added += 1
     if bulk:
-        db.bulk_save_objects(bulk)
+        guard_and_save(db, bulk, source_file=source_file)
         db.commit()
     return {"rows_added": added, "rows_removed": removed}
 

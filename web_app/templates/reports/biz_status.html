@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}사업현황 입력 — 인비즈{% endblock %}
+{% block content %}
+<style>
+  .bs-t { width:100%; border-collapse:collapse; }
+  .bs-t th { background:#16365C; color:#fff; font-weight:700; padding:10px; border:1px solid #C9D6D3; font-size:13px; }
+  .bs-t td { border:1px solid #C9D6D3; padding:8px; vertical-align:top; }
+  .bs-t textarea {
+    width:100%; min-height:200px; border:1px solid #E2E8F0; border-radius:6px;
+    padding:10px; font-size:13px; line-height:1.7; resize:vertical; background:#FAFBFC;
+  }
+  .bs-t textarea:focus { outline:2px solid rgba(107,44,145,0.3); background:#fff; }
+  .bs-cat { background:#F1F5F9; text-align:center; font-weight:700; width:100px; font-size:13px; }
+</style>
+
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <a href="/reports/investor" class="text-xs text-slate-500 hover:underline">← 투자사 보고</a>
+    <h1 class="text-2xl font-bold mt-1" style="color: var(--inviz-purple);">📋 사업현황 입력·수정</h1>
+    <div class="text-sm text-slate-500 mt-1">여기 입력한 내용이 투자사 보고서의 <b>사업현황 시트</b>에 그대로 반영됩니다. 한 줄 = 표의 한 칸.</div>
+  </div>
+</div>
+
+{% if request.query_params.get('_msg') %}
+<div class="card mb-3" style="background:#F0FDF4; border:1px solid #86EFAC;">
+  <div class="text-sm text-green-800">{{ request.query_params.get('_msg') }}</div>
+</div>
+{% endif %}
+
+<!-- 기간 선택 -->
+<form method="get" action="/reports/biz-status" class="card mb-3">
+  <div class="flex items-center gap-2 text-sm">
+    <span class="font-semibold text-slate-600">대상기간</span>
+    <select name="year" class="select" style="width:100px;">
+      {% for yy in range(2024, 2028) %}<option value="{{ yy }}" {% if yy == year %}selected{% endif %}>{{ yy }}년</option>{% endfor %}
+    </select>
+    <select name="quarter" class="select" style="width:90px;">
+      {% for qq in [1,2,3,4] %}<option value="{{ qq }}" {% if qq == quarter %}selected{% endif %}>{{ qq }}분기</option>{% endfor %}
+    </select>
+    <button class="btn btn-secondary">불러오기</button>
+    <span class="text-xs text-slate-400 ml-2">분기별로 별도 저장됩니다</span>
+  </div>
+</form>
+
+<!-- 편집 그리드 -->
+<form method="post" action="/reports/biz-status/save">
+  <input type="hidden" name="year" value="{{ year }}">
+  <input type="hidden" name="quarter" value="{{ quarter }}">
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table class="bs-t">
+      <thead>
+        <tr>
+          <th style="width:100px;">구분</th>
+          <th>당분기실적 — {{ year }}년 {{ quarter }}분기</th>
+          <th>차분기계획 — {{ next_label }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cat in categories %}
+        <tr>
+          <td class="bs-cat">{{ cat }}</td>
+          <td><textarea name="{{ cat }}__current" placeholder="당분기 {{ cat }} 실적을 한 줄씩 입력하세요&#10;예: 신규 원격판독 센터 계약 : 서울메디컬 센터">{{ data.get((cat, 'current'), '') }}</textarea></td>
+          <td><textarea name="{{ cat }}__next" placeholder="차분기 {{ cat }} 계획을 한 줄씩 입력하세요&#10;예: 신규 판독 센터 계약 준비 : 부산, 광주 각 1개소">{{ data.get((cat, 'next'), '') }}</textarea></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="flex items-center gap-2 mt-4">
+    <button class="btn btn-accent px-8">💾 저장</button>
+    <a href="/reports/investor-report.xlsx?year={{ year }}&quarter={{ quarter }}" class="btn btn-secondary">📥 이 기간 투자사 보고서 다운로드</a>
+    <span class="text-xs text-slate-400">저장 → 다운로드하면 사업현황 시트에 반영됩니다</span>
+  </div>
+</form>
+
+<div class="card mt-4 text-xs text-slate-500">
+  <div class="font-semibold text-slate-700 mb-1">💡 다른 시트는 내부 데이터와 자동 연동</div>
+  회사개요(회사정보·주주·등기이사) · 임직원현황(직원 마스터·입퇴사일) · 매출현황(매출 DB, 최근 4개 분기) · 재무현황(은행계좌 잔액·차입금 마스터)는
+  시스템 데이터에서 자동으로 채워지며, 사업현황만 이 화면에서 직접 관리합니다.
+</div>
+{% endblock %}

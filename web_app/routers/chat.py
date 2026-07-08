@@ -123,29 +123,36 @@ def chat_stream(
                     pass
 
             search_only = use_rag.lower() == "search_only"
+            system_mode = use_rag.lower() == "system"
             yield _sse("status", {"stage": "intent", "msg": "의도 분석 중..."})
 
             # 의도 분류 (fast first)
             fast = fast_intent_match(q)
-            if fast:
+            if fast and not system_mode:
                 intent = fast
             elif search_only:
                 # 검색만 모드 — LLM 호출 안 하고 unknown으로
                 intent = {"intent": "unknown", "_fast": False}
+            elif system_mode:
+                # 시스템 모드 — DB dispatch 건너뛰고 LLM에 시스템 컨텍스트만 주입
+                intent = {"intent": "system", "_fast": False}
             else:
                 yield _sse("status", {"stage": "intent_llm", "msg": f"의도 분류 LLM 호출 ({model.split(':')[0]})..."})
                 intent = extract_intent(q, model=model)
 
-            # DB 결과
-            yield _sse("status", {"stage": "db", "msg": "DB 검색..."})
-            result = dispatch(intent, db)
-            if result:
-                yield _sse("result", {
-                    "intent": intent, "result": result,
-                    "summary": template_summary(intent, result),
-                })
+            # DB 결과 (system 모드에서는 skip)
+            if system_mode:
+                result = None
+            else:
+                yield _sse("status", {"stage": "db", "msg": "DB 검색..."})
+                result = dispatch(intent, db)
+                if result:
+                    yield _sse("result", {
+                        "intent": intent, "result": result,
+                        "summary": template_summary(intent, result),
+                    })
 
-            use_rag_b = search_only or use_rag.lower() in ("true", "1", "yes", "on")
+            use_rag_b = search_only or system_mode or use_rag.lower() in ("true", "1", "yes", "on")
             rag_hits = []
             answer_text = ""
             ctx_tokens = 0
@@ -166,29 +173,41 @@ def chat_stream(
                     } for h in hits[:6]],
                 })
 
-                if hits and not search_only:
-                    context, _, ctx_tokens = build_context(hits, max_tokens=1500)
+                if (hits or system_mode) and not search_only:
+                    context, _, ctx_tokens = build_context(hits, max_tokens=1500) if hits else ("", [], 0)
                     yield _sse("status", {"stage": "llm", "msg": f"LLM 답변 생성 중 ({model.split(':')[0]})..."})
 
-                    system = """당신은 한국 의료 IT 회사 "인비즈(Inviz)"의 경영관리 비서입니다.
+                    if system_mode:
+                        # 시스템 컨설턴트 모드 — 전체 시스템 상태를 컨텍스트로 주입
+                        from system_context import build_system_context, SYSTEM_MODE_PROMPT
+                        sys_ctx = build_system_context(db)
+                        system = SYSTEM_MODE_PROMPT
+                        user_parts = [f"[시스템 상태]\n{sys_ctx}"]
+                        if context:
+                            user_parts.append(f"[참고 자료(RAG)]\n{context}")
+                        user_parts.append(f"[질문]\n{q}")
+                        user = "\n\n".join(user_parts)
+                        max_out = 900  # 시스템 모드는 더 긴 답변 허용
+                    else:
+                        system = """당신은 한국 의료 IT 회사 "인비즈(Inviz)"의 경영관리 비서입니다.
 [참고 자료]만 근거로 한국어로 답하세요. 자료에 없으면 "자료에 없습니다"라고 답하세요.
 핵심 답변을 맨 앞에 1~3문장으로 명확히 제시하세요. 상세 수치·근거는 화면의 접이식 '데이터 결과'·'참고 자료'에 따로 표시되므로, 답변만으로도 충분히 이해되도록 작성하세요.
 숫자는 콤마와 단위(원, 건, 명)로 명확히 표기하세요.
 분기는 3개월 단위입니다: 1분기=1~3월, 2분기=4~6월, 3분기=7~9월, 4분기=10~12월. 예) '2026년 1분기'는 2026-01-01 ~ 2026-03-31 입니다.
 마지막에 [자료 N]으로 인용하세요."""
-                    user = f"[참고 자료]\n{context}\n\n[질문]\n{q}"
+                        user = f"[참고 자료]\n{context}\n\n[질문]\n{q}"
+                        max_out = 400
 
                     try:
                         import llm_provider
                         msgs = [{"role": "system", "content": system},
                                 {"role": "user", "content": user}]
                         if llm_provider.is_cloud():
-                            # 클라우드 API — 단발 호출 후 전체 답변 전송 (빠름)
-                            full = llm_provider.chat_complete(msgs, temperature=0.2, max_tokens=400)
+                            full = llm_provider.chat_complete(msgs, temperature=0.2, max_tokens=max_out)
                             answer_text += full
                             yield _sse("token", {"text": full})
                         else:
-                            for tok in ollama_chat_stream(msgs, model=model, temperature=0.2, num_predict=350):
+                            for tok in ollama_chat_stream(msgs, model=model, temperature=0.2, num_predict=max_out):
                                 answer_text += tok
                                 yield _sse("token", {"text": tok})
                     except Exception as e:

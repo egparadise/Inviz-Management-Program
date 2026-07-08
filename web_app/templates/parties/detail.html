@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}{{ party.name }} — 거래처 상세{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+  <div>
+    <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">
+      🏢 {{ party.name }}
+      {% if party.category %}<span class="badge badge-purple text-xs ml-2">{{ party.category }}</span>{% endif %}
+      {% if party.active != 'Y' %}<span class="badge badge-gray text-xs ml-1">비활성</span>{% endif %}
+    </h1>
+    <div class="text-xs text-slate-500 mt-1 font-mono">
+      코드 {{ party.code }}
+      {% if party.biz_no %} · 사업자 <b>{{ party.biz_no }}</b>{% endif %}
+      {% if party.main_product %} · 주거래제품 {{ party.main_product }}{% endif %}
+    </div>
+  </div>
+  <div class="flex gap-2">
+    <a href="/parties/{{ party.code }}/edit" class="btn btn-secondary">✎ 마스터 수정</a>
+    <a href="/parties" class="btn btn-secondary">← 거래처 목록</a>
+  </div>
+</div>
+
+<!-- 마스터 정보 카드 -->
+<div class="card mb-4" style="border-left:4px solid var(--inviz-purple);">
+  <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 text-sm">
+    <div><div class="text-xs text-slate-500">담당자</div><div>{{ party.contact_person or '-' }}</div></div>
+    <div><div class="text-xs text-slate-500">연락처</div><div class="font-mono">{{ party.phone or '-' }}</div></div>
+    <div><div class="text-xs text-slate-500">최초 거래</div><div>{{ party.first_seen or '-' }}</div></div>
+    <div><div class="text-xs text-slate-500">최종 거래</div><div>{{ party.last_seen or '-' }}</div></div>
+    <div><div class="text-xs text-slate-500">메모</div><div class="text-xs text-slate-600">{{ party.note or '-' }}</div></div>
+  </div>
+</div>
+
+<!-- KPI 카드 -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+  <div class="kpi-card" style="border-color: #7C3AED;">
+    <div class="text-xs text-slate-500">💰 매출 건수</div>
+    <div class="text-xl font-bold mt-1">{{ sale_summary.count|money }}건</div>
+  </div>
+  <div class="kpi-card" style="border-color: #7C3AED;">
+    <div class="text-xs text-slate-500">💰 매출 공급가</div>
+    <div class="text-xl font-bold mt-1">{{ sale_summary.supply|money }}원</div>
+  </div>
+  <div class="kpi-card" style="border-color: #F97316;">
+    <div class="text-xs text-slate-500">📦 매입 건수</div>
+    <div class="text-xl font-bold mt-1">{{ purchase_summary.count|money }}건</div>
+  </div>
+  <div class="kpi-card" style="border-color: #F97316;">
+    <div class="text-xs text-slate-500">📦 매입 공급가</div>
+    <div class="text-xl font-bold mt-1">{{ purchase_summary.supply|money }}원</div>
+  </div>
+</div>
+
+<!-- 기간/탭 필터 -->
+<form method="get" class="card mb-4 flex flex-wrap gap-3 items-center">
+  <span class="text-xs font-semibold text-slate-600">필터:</span>
+  <select name="year" class="select text-sm" onchange="this.form.submit()">
+    <option value="">전체 연도</option>
+    {% for y in years_avail %}
+    <option value="{{ y }}" {% if filter.year == y %}selected{% endif %}>{{ y }}년</option>
+    {% endfor %}
+  </select>
+  <select name="month" class="select text-sm" onchange="this.form.submit()">
+    <option value="">전체 월</option>
+    {% for m in range(1,13) %}<option value="{{ m }}" {% if filter.month == m %}selected{% endif %}>{{ m }}월</option>{% endfor %}
+  </select>
+  <div class="flex gap-1 ml-2">
+    <a href="?{% if filter.year %}year={{ filter.year }}&{% endif %}{% if filter.month %}month={{ filter.month }}&{% endif %}tab=all"
+       class="btn btn-secondary text-xs {% if filter.tab == 'all' %}!bg-purple-100 !text-purple-700 font-bold{% endif %}">전체</a>
+    <a href="?{% if filter.year %}year={{ filter.year }}&{% endif %}{% if filter.month %}month={{ filter.month }}&{% endif %}tab=sale"
+       class="btn btn-secondary text-xs {% if filter.tab == 'sale' %}!bg-purple-100 !text-purple-700 font-bold{% endif %}">💰 매출만</a>
+    <a href="?{% if filter.year %}year={{ filter.year }}&{% endif %}{% if filter.month %}month={{ filter.month }}&{% endif %}tab=purchase"
+       class="btn btn-secondary text-xs {% if filter.tab == 'purchase' %}!bg-orange-100 !text-orange-700 font-bold{% endif %}">📦 매입만</a>
+  </div>
+  {% if filter.year or filter.month or filter.tab != 'all' %}
+  <a href="/parties/{{ party.code }}" class="text-xs text-red-600 hover:underline ml-2">↻ 초기화</a>
+  {% endif %}
+</form>
+
+<!-- 연도별 추이 -->
+{% if sale_by_year or purchase_by_year %}
+<div class="card mb-4">
+  <h3 class="font-semibold text-sm mb-2" style="color: var(--inviz-purple);">📈 연도별 추이</h3>
+  <div class="overflow-x-auto">
+    <table class="table text-sm">
+      <thead><tr><th>연도</th><th class="num">💰 매출</th><th class="num">📦 매입</th><th class="num">차익</th></tr></thead>
+      <tbody>
+        {% set sale_map = dict(sale_by_year) %}
+        {% set purchase_map = dict(purchase_by_year) %}
+        {% set all_years = (sale_map.keys() | list + purchase_map.keys() | list) | unique | sort(reverse=true) %}
+        {% for y in all_years %}
+        <tr>
+          <td class="font-semibold">{{ y }}년</td>
+          <td class="num">{{ (sale_map.get(y, 0))|money }}</td>
+          <td class="num">{{ (purchase_map.get(y, 0))|money }}</td>
+          <td class="num font-semibold">{{ (sale_map.get(y, 0) - purchase_map.get(y, 0))|money }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- 거래 명세 -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  {% if sales_rows %}
+  <div class="card">
+    <h3 class="font-semibold text-sm mb-2" style="color: #7C3AED;">💰 매출 명세 ({{ sales_rows|length }}건{% if sales_rows|length == 200 %}+{% endif %})</h3>
+    <div class="overflow-x-auto max-h-96 overflow-y-auto">
+      <table class="table text-xs">
+        <thead class="sticky top-0 bg-purple-50">
+          <tr><th>일자</th><th>품명</th><th>유형</th><th class="num">공급가</th><th class="num">합계</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for r in sales_rows %}
+          <tr>
+            <td class="whitespace-nowrap">{{ r.txn_date|date }}</td>
+            <td>{{ r.item_raw or r.product_name or '' }}</td>
+            <td><span class="badge badge-gray text-xs">{{ r.sale_type or '기타' }}</span></td>
+            <td class="num">{{ r.supply|money }}</td>
+            <td class="num font-semibold">{{ r.total|money }}</td>
+            <td><a href="/sales/{{ r.id }}/edit" target="_blank" class="text-xs text-purple-700">→</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if purchase_rows %}
+  <div class="card">
+    <h3 class="font-semibold text-sm mb-2" style="color: #F97316;">📦 매입 명세 ({{ purchase_rows|length }}건{% if purchase_rows|length == 200 %}+{% endif %})</h3>
+    <div class="overflow-x-auto max-h-96 overflow-y-auto">
+      <table class="table text-xs">
+        <thead class="sticky top-0 bg-orange-50">
+          <tr><th>일자</th><th>품명</th><th>유형</th><th class="num">공급가</th><th class="num">합계</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for r in purchase_rows %}
+          <tr>
+            <td class="whitespace-nowrap">{{ r.txn_date|date }}</td>
+            <td>{{ r.item_raw or r.product_name or '' }}</td>
+            <td><span class="badge badge-gray text-xs">{{ r.purchase_type or '기타' }}</span></td>
+            <td class="num">{{ r.supply|money }}</td>
+            <td class="num font-semibold">{{ r.total|money }}</td>
+            <td><a href="/purchases/{{ r.id }}/edit" target="_blank" class="text-xs text-orange-700">→</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% if contracts %}
+<div class="card mt-4">
+  <h3 class="font-semibold text-sm mb-2" style="color: var(--inviz-purple);">📋 계약 ({{ contracts|length }}건)</h3>
+  <div class="overflow-x-auto">
+    <table class="table text-sm">
+      <thead><tr><th>계약명</th><th>시작</th><th>만료</th><th class="num">계약금</th><th>상태</th></tr></thead>
+      <tbody>
+        {% for c in contracts %}
+        <tr>
+          <td>{{ c.title or '-' }}</td>
+          <td class="whitespace-nowrap text-xs">{{ c.start_date or '-' }}</td>
+          <td class="whitespace-nowrap text-xs">{{ c.end_date or '-' }}</td>
+          <td class="num">{{ (c.contract_amount or 0)|money }}</td>
+          <td><span class="badge badge-gray text-xs">{{ c.status or '-' }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

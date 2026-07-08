@@ -771,6 +771,220 @@ updatePreview('purchase');
 {% endif %}
 
 
+{# ==================== 중복 감시 (Dedup Guardian) ==================== #}
+{% if page == 'dedup' %}
+{% set dd = dedup_data %}
+
+{% if request.query_params.get('_msg') %}
+<div class="card mb-4" style="background:#FFF7ED; border:1px solid #FED7AA;">
+  <div class="text-sm" style="color:#9A3412;">{{ request.query_params.get('_msg') }}</div>
+</div>
+{% endif %}
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <h2 class="text-xl font-bold mb-1" style="color: var(--inviz-purple);">🛡 중복 감시 (Duplicate Guardian)</h2>
+  <p class="text-sm text-slate-600 mb-2">
+    같은 <b>일자·거래처·공급가액</b>의 거래가 매출/매입 DB에 중복 적재돼 있는지 실시간으로 감시합니다.
+  </p>
+  <div class="text-xs text-slate-500">
+    💡 이 기능은 자동으로도 동작합니다 — 모든 업로드(Excel·CSV·동기화) 시 중복 행은 기본 스킵되며,
+    AI 시스템 모드에서 "중복 진단해줘" 명령으로 자가 점검할 수 있습니다.
+  </div>
+</div>
+
+<!-- 매출 / 매입 카드 -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+  {% for kind, label, scan, st in [
+    ('sale', '매출 (fact_sale)', dd.scan_sale, dd.stats.sale),
+    ('purchase', '매입 (fact_purchase)', dd.scan_purchase, dd.stats.purchase),
+  ] %}
+  <div class="card">
+    <h3 class="font-semibold mb-3 flex items-center gap-2" style="color: var(--inviz-purple);">
+      {{ label }}
+      {% if st.dup_excess_rows > 0 %}<span class="badge" style="background:#FEF3C7;color:#92400E;">⚠ 중복 {{ st.dup_excess_rows|money }}건</span>
+      {% else %}<span class="badge badge-green">✓ 깨끗</span>{% endif %}
+    </h3>
+    <div class="grid grid-cols-3 gap-2 text-center text-xs">
+      <div class="bg-purple-50 p-2 rounded">
+        <div class="text-slate-500">전체 행수</div>
+        <div class="font-bold text-lg" style="color: var(--inviz-purple);">{{ st.total_rows|money }}</div>
+      </div>
+      <div class="bg-amber-50 p-2 rounded">
+        <div class="text-slate-500">중복 그룹</div>
+        <div class="font-bold text-lg text-amber-700">{{ st.dup_groups|money }}</div>
+      </div>
+      <div class="bg-red-50 p-2 rounded">
+        <div class="text-slate-500">중복률</div>
+        <div class="font-bold text-lg text-red-600">{{ "%.2f"|format(st.dup_rate_pct) }}%</div>
+      </div>
+    </div>
+
+    {% if scan.sample %}
+    <div class="mt-3">
+      <div class="text-xs font-semibold text-slate-600 mb-1">중복 그룹 (상위 {{ scan.sample|length }})</div>
+      <div class="overflow-y-auto" style="max-height:260px;">
+        <table class="table text-xs">
+          <thead><tr><th>일자</th><th>거래처</th><th class="num">금액</th><th class="num">중복 수</th><th>id들</th></tr></thead>
+          <tbody>
+            {% for g in scan.sample %}
+            <tr>
+              <td class="whitespace-nowrap">{{ g.date }}</td>
+              <td class="truncate" style="max-width:140px;">{{ g.party }}</td>
+              <td class="num">{{ g.supply|money }}</td>
+              <td class="num"><span class="badge" style="background:#FEF3C7;color:#92400E;">×{{ g.count }}</span></td>
+              <td class="font-mono text-[10px] text-slate-400">{{ g.ids|join(', ') }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <form method="post" action="/settings/dedup/merge" class="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap"
+          onsubmit="return confirm('{{ kind }} 중복 {{ st.dup_excess_rows }}건을 병합·삭제합니다. (가장 오래된 행만 남기고 나머지 삭제, 자동 백업 생성) 진행?');">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <label class="text-xs flex items-center gap-1">
+        <span>확인 입력 →</span>
+        <input type="text" name="confirm" placeholder="MERGE 입력" required
+               class="border px-2 py-1 rounded text-xs" style="width:120px;">
+      </label>
+      <button class="btn btn-accent text-xs">🧹 중복 병합 실행</button>
+      <span class="text-[10px] text-slate-400">(병합 전 자동 DB 백업)</span>
+    </form>
+    {% else %}
+    <div class="text-center text-green-700 py-4 text-sm">✓ 중복 데이터가 없습니다.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card text-xs text-slate-500">
+  <div class="font-semibold text-slate-700 mb-1">🔬 매칭 규칙</div>
+  <ul class="ml-4 list-disc space-y-1">
+    <li><b>키</b>: (txn_date, 거래처 정규화 이름, 공급가액) — 정규화: <code>(주)</code>/공백/특수문자 제거 후 소문자</li>
+    <li><b>업로드 시</b>: 미리보기 단계에서 DB 중복 + 같은 배치 내 중복을 모두 표시. <b>적용 시 기본 스킵</b>.</li>
+    <li><b>강제 적용</b>: 사용자가 "중복 무시" 체크 시에만 중복 행도 추가됨.</li>
+    <li><b>병합</b>: 가장 오래된 (id 작은) 행만 남기고 나머지 삭제. note에 "[중복병합:id들]" 추가.</li>
+  </ul>
+</div>
+{% endif %}
+
+
+{# ==================== 의도 보존 원장 (User Intent Ledger) ==================== #}
+{% if page == 'intent' %}
+{% set idat = intent_data %}
+
+{% if request.query_params.get('_msg') %}
+<div class="card mb-4" style="background:#FFF7ED; border:1px solid #FED7AA;">
+  <div class="text-sm" style="color:#9A3412;">{{ request.query_params.get('_msg') }}</div>
+</div>
+{% endif %}
+
+<div class="card mb-4" style="border-left: 4px solid var(--inviz-orange);">
+  <h2 class="text-xl font-bold mb-1" style="color: var(--inviz-purple);">🧾 사용자 의도 보존 원장 (User Intent Ledger)</h2>
+  <p class="text-sm text-slate-600 mb-2">
+    사용자가 <b>명시적으로 삭제/편집한 데이터</b>의 signature를 영구 기록하여,
+    자동 sync가 같은 파일을 다시 읽어도 <b>재삽입을 자동 차단</b>합니다.
+  </p>
+  <div class="text-xs text-slate-500">
+    💡 예: 매출 잘못 들어간 행 삭제 → 다음날 sync가 원본 Excel을 다시 읽어도 그 행은 되살아나지 않음.<br>
+    🛡 매출/매입/급여/비용/임차료/미수금/차입금 등 모든 fact 도메인에 적용됨.<br>
+    🔁 실수로 삭제했다면 아래 표에서 <b>"복구"</b> 클릭 → 이후 sync가 재삽입 허용.
+  </div>
+</div>
+
+<!-- 통계 -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+  <div class="card text-center">
+    <div class="text-xs text-slate-500">전체 기록</div>
+    <div class="text-2xl font-bold" style="color: var(--inviz-purple);">{{ idat.stats.total_entries|money }}</div>
+  </div>
+  <div class="card text-center">
+    <div class="text-xs text-slate-500">활성 차단</div>
+    <div class="text-2xl font-bold text-amber-700">{{ idat.stats.active_blocks|money }}</div>
+    <div class="text-[10px] text-slate-400">현재 sync 시 차단될 대상</div>
+  </div>
+  <div class="card text-center">
+    <div class="text-xs text-slate-500">누적 방어 횟수</div>
+    <div class="text-2xl font-bold text-green-700">{{ idat.stats.total_preventions|money }}</div>
+    <div class="text-[10px] text-slate-400">sync 시 재삽입 차단된 총 횟수</div>
+  </div>
+  <div class="card text-center">
+    <div class="text-xs text-slate-500">액션 유형</div>
+    <div class="text-xs font-semibold mt-2" style="color: var(--inviz-purple);">
+      {% for a, n in idat.stats.by_action.items() %}
+        <span class="badge badge-purple">{{ a }}: {{ n }}</span>
+      {% endfor %}
+      {% if not idat.stats.by_action %}<span class="text-slate-400">없음</span>{% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- 최근 이벤트 -->
+<div class="card mb-4">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">📋 최근 이벤트 ({{ idat.recent|length }}건 · 60일)</h3>
+  {% if idat.recent %}
+  <div class="overflow-x-auto" style="max-height:520px; overflow-y:auto;">
+    <table class="table text-xs">
+      <thead class="sticky top-0 bg-white">
+        <tr>
+          <th>시각</th><th>액션</th><th>도메인</th><th>거래일</th><th>거래처</th>
+          <th class="num">금액</th><th>원본 파일</th><th class="num">방어횟수</th><th>사유</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in idat.recent %}
+        <tr class="{% if e.action == 'restore' %}bg-blue-50{% elif e.prevention_count > 0 %}bg-green-50{% endif %}">
+          <td class="whitespace-nowrap text-[10px] text-slate-500">{{ e.ts[:16] }}</td>
+          <td>
+            {% if e.action == 'delete' %}<span class="badge" style="background:#FEE2E2;color:#991B1B;">🗑 delete</span>
+            {% elif e.action == 'edit' %}<span class="badge" style="background:#FEF3C7;color:#92400E;">✏ edit</span>
+            {% elif e.action == 'reject' %}<span class="badge" style="background:#FED7AA;color:#9A3412;">🚫 reject</span>
+            {% elif e.action == 'restore' %}<span class="badge" style="background:#DBEAFE;color:#1E40AF;">🔁 restore</span>
+            {% else %}<span class="badge">{{ e.action }}</span>{% endif %}
+          </td>
+          <td>{{ e.kind }}</td>
+          <td class="whitespace-nowrap">{{ e.date }}</td>
+          <td class="truncate" style="max-width:180px;">{{ e.party }}</td>
+          <td class="num">{{ e.supply|money }}</td>
+          <td class="text-[10px] text-slate-500 truncate" style="max-width:200px;" title="{{ e.source_file }}">{{ e.source_file or '-' }}</td>
+          <td class="num">
+            {% if e.prevention_count > 0 %}
+              <span class="font-bold text-green-700" title="이 signature가 sync에 의해 재삽입 차단된 횟수">×{{ e.prevention_count }}</span>
+            {% else %}<span class="text-slate-300">0</span>{% endif %}
+          </td>
+          <td class="text-[10px] text-slate-600 truncate" style="max-width:220px;">{{ e.reason }}</td>
+          <td>
+            {% if e.action != 'restore' %}
+            <form method="post" action="/settings/intent/{{ e.id }}/restore" class="inline"
+                  onsubmit="return confirm('#{{ e.id }} 복구합니다 — 이후 sync가 이 행을 다시 삽입할 수 있게 됩니다. 진행?');">
+              <button class="text-xs text-blue-600 hover:underline" title="차단 해제 (실수 복구용)">🔁 복구</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center text-slate-400 py-8">최근 60일간 기록된 사용자 삭제/편집 이벤트가 없습니다.</div>
+  {% endif %}
+</div>
+
+<div class="card text-xs text-slate-500">
+  <div class="font-semibold text-slate-700 mb-1">🔬 원리</div>
+  <ul class="ml-4 list-disc space-y-1">
+    <li><b>Signature</b>: <code>sha1(kind|txn_date|정규화된거래처|공급가액)[:16]</code> — dedup 규칙과 동일</li>
+    <li><b>기록 시점</b>: /sales·/purchases 개별 삭제, 설정→매출·매입 관리 일괄 삭제 등</li>
+    <li><b>차단 시점</b>: sync_handlers의 모든 <code>bulk_save</code> 호출 직전 — 매출·매입·급여·비용·미수금·차입금·임차료·퇴직금 등 12개 핸들러</li>
+    <li><b>방어횟수</b>: 같은 signature가 반복 sync 시 몇 번 차단됐는지 카운트. 큰 값 = 자주 재발하는 파일</li>
+    <li><b>복구</b>: 실수로 삭제 → 🔁 복구 클릭 → action이 'restore'로 바뀌어 차단 해제됨</li>
+  </ul>
+</div>
+{% endif %}
+
+
 {# ==================== 네트워크 / 사내접속 ==================== #}
 {% if page == 'network' %}
 <form method="post" action="/settings/save" class="card mb-4">
@@ -881,6 +1095,79 @@ updatePreview('purchase');
     </li>
   </ol>
 </div>
+
+<!-- 실시간 접속 진단 -->
+<div class="card mb-4" style="border:2px solid var(--inviz-orange); background:linear-gradient(90deg,#FFF7ED,#FFFBEB);">
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="font-semibold flex items-center gap-2" style="color: var(--inviz-purple);">
+      🔍 실시간 접속 진단 <span class="text-xs font-normal text-slate-500">— 다른 PC 접속이 안 될 때 원인 자동 분석</span>
+    </h3>
+    <button type="button" class="btn btn-accent" onclick="runNetDiagnose()">▶ 진단 실행</button>
+  </div>
+  <div id="netDiagResult" class="hidden">
+    <div id="netDiagOverall" class="mb-3 font-semibold"></div>
+    <div id="netDiagChecks" class="space-y-2"></div>
+    <div id="netDiagUrls" class="mt-4 pt-3 border-t"></div>
+  </div>
+  <div class="text-xs text-slate-500 mt-2">
+    💡 진단으로 파악되지 않는 문제는 서버 관리자에게 문의. 방화벽 자동 허용용 배치 파일이 바탕화면에 있습니다:
+    <code>인비즈_방화벽허용_이PC.bat</code> (이 PC · 관리자 실행)
+    · <code>인비즈_접속설정_다른PC.bat</code> (접속할 PC · 관리자 실행)
+  </div>
+</div>
+
+<script>
+async function runNetDiagnose() {
+  const box = document.getElementById('netDiagResult');
+  const checksBox = document.getElementById('netDiagChecks');
+  const overallBox = document.getElementById('netDiagOverall');
+  const urlsBox = document.getElementById('netDiagUrls');
+  box.classList.remove('hidden');
+  checksBox.innerHTML = '<div class="text-sm text-slate-500">진단 중...</div>';
+  overallBox.textContent = '';
+  urlsBox.innerHTML = '';
+  try {
+    const r = await fetch('/settings/network/diagnose');
+    const data = await r.json();
+    // Overall
+    const map = {healthy: ['✓ 정상','text-green-700','#DCFCE7'],
+                 fixable: ['⚠ 문제 발견 — 자동 해결 가능','text-amber-700','#FEF3C7'],
+                 blocked: ['✗ 접속 차단됨','text-red-700','#FEE2E2']};
+    const [oLabel, oCls, oBg] = map[data.overall] || map.blocked;
+    overallBox.innerHTML = `<div class="${oCls} px-3 py-2 rounded" style="background:${oBg};">${oLabel} (${data.fail_count}개 문제)</div>`;
+    // Checks
+    checksBox.innerHTML = data.checks.map(c => `
+      <div class="border rounded p-2 ${c.ok ? 'bg-white' : 'bg-amber-50 border-amber-200'}">
+        <div class="flex items-start gap-2">
+          <span class="text-lg">${c.ok ? '✓' : '⚠'}</span>
+          <div class="flex-1">
+            <div class="font-semibold text-sm ${c.ok ? 'text-green-700' : 'text-amber-800'}">${c.name}</div>
+            <div class="text-xs text-slate-600 mt-1">${c.detail}</div>
+            ${c.fix ? `<div class="text-xs mt-1 text-purple-700"><b>해결책:</b> ${c.fix}</div>` : ''}
+          </div>
+        </div>
+      </div>`).join('');
+    // URLs
+    if (data.access_urls) {
+      const u = data.access_urls;
+      urlsBox.innerHTML = `
+        <div class="text-xs font-semibold text-slate-600 mb-1">📱 다른 PC에서 접속할 URL</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+          <div class="bg-purple-50 p-2 rounded">
+            <div class="text-slate-500">1. IP 직접 접속 (즉시 사용 가능):</div>
+            <a href="${u.direct_ip}" target="_blank" class="text-purple-700 font-mono underline">${u.direct_ip}</a>
+          </div>
+          ${u.domain ? `<div class="bg-orange-50 p-2 rounded">
+            <div class="text-slate-500">2. 도메인 접속 (hosts 등록 필요):</div>
+            <a href="${u.domain}" target="_blank" class="text-orange-700 font-mono underline">${u.domain}</a>
+          </div>` : ''}
+        </div>`;
+    }
+  } catch (e) {
+    checksBox.innerHTML = `<div class="text-red-600 text-sm">진단 실패: ${e}</div>`;
+  }
+}
+</script>
 {% endif %}
 
 

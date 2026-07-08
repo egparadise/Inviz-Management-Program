@@ -36,6 +36,8 @@ SETTINGS_PAGES = [
     ("payroll", "급여 요율", "🧮"),
     ("banking", "은행·카드", "💳"),
     ("txn-mgmt", "매출·매입 관리", "🗑"),
+    ("dedup", "중복 감시", "🛡"),
+    ("intent", "의도 보존 원장", "🧾"),
     ("db", "DB 탐색기", "🗄"),
     ("menu", "메뉴 순서", "🧭"),
     ("account", "계정·보안·접속", "🔐"),
@@ -162,7 +164,38 @@ def _render_settings(request, page="general", log_category="", log_limit=100, lo
         "pay_rates": pay_rates, "pay_rate_defaults": pay_rate_defaults,
         "page": page, "pages": SETTINGS_PAGES,
         "db_inventory": _db_inventory() if page == "db" else None,
+        "dedup_data": _dedup_context() if page == "dedup" else None,
+        "intent_data": _intent_context() if page == "intent" else None,
     })
+
+
+def _intent_context():
+    """의도 원장 페이지용 컨텍스트."""
+    from user_intent import scan_recent, stats
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        return {
+            "recent": scan_recent(db, days=60, limit=200),
+            "stats": stats(db),
+        }
+    finally:
+        db.close()
+
+
+def _dedup_context():
+    """중복 감시 페이지용 데이터 — 매출/매입 스캔 + 통계."""
+    from dedup import scan_duplicates, overall_stats
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        return {
+            "scan_sale": scan_duplicates(db, "sale", limit=50),
+            "scan_purchase": scan_duplicates(db, "purchase", limit=50),
+            "stats": overall_stats(db),
+        }
+    finally:
+        db.close()
 
 
 @router.get("/logs/download.{fmt}")
@@ -1119,7 +1152,23 @@ async def txn_mgmt_delete(request: Request, db: Session = Depends(get_db)):
             f"/settings/txn-mgmt?_msg=" + f"{kind} 삭제 대상이 없습니다 (조건과 일치하는 행 0건)",
             status_code=303)
 
-    # 3) 삭제 실행
+    # 3-a) 🛡 삭제될 행들을 User Intent Ledger에 기록 (재sync 시 재삽입 차단)
+    intent_recorded = 0
+    try:
+        from user_intent import record_bulk_deletion
+        rows_stmt = select(model)
+        if conds:
+            rows_stmt = rows_stmt.where(and_(*conds) if len(conds) > 1 else conds[0])
+        target_rows = db.execute(rows_stmt).scalars().all()
+        reason = f"일괄 삭제 (설정→매출·매입 관리 · {kind} · year={year} q={quarter} m={month} d={day})"
+        intent_recorded = record_bulk_deletion(
+            db, kind=kind, rows=target_rows, reason=reason,
+            client_ip=request.client.host if request.client else "")
+        db.commit()
+    except Exception as e:
+        print(f"[txn-mgmt] user_intent 기록 실패: {e}")
+
+    # 3-b) 삭제 실행
     from sqlalchemy import delete as _delete
     del_stmt = _delete(model)
     if conds:
@@ -1147,6 +1196,140 @@ def ai_ping():
         return JSONResponse(llm_provider.ping_all())
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ====== 네트워크 진단 API — /settings/network의 "접속 진단" 버튼 ======
+@router.get("/network/diagnose")
+def network_diagnose():
+    """사내망 접속 문제를 실시간 진단.
+    - LAN IP 감지
+    - 서버 리스닝 바인딩 (0.0.0.0 vs 127.0.0.1)
+    - Windows 방화벽 규칙 존재 여부
+    - 자기 자신에게 LAN IP로 HTTP 응답
+    """
+    import socket, subprocess, urllib.request
+    from fastapi.responses import JSONResponse
+    result = {"checks": []}
+
+    def add(name, ok, detail, fix=None):
+        result["checks"].append({"name": name, "ok": ok, "detail": detail, "fix": fix or ""})
+
+    # 1) LAN IP 감지
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan_ip = s.getsockname()[0]
+        s.close()
+        add("LAN IP 감지", True, f"현재 이 PC의 LAN IP: {lan_ip}")
+        result["lan_ip"] = lan_ip
+    except Exception as e:
+        add("LAN IP 감지", False, f"실패: {e}", "네트워크 어댑터 확인")
+        result["lan_ip"] = None
+
+    # 2) 서버 바인딩 확인 (netstat)
+    try:
+        port = int(ss.get("net_port", "8000") or "8000")
+        r = subprocess.run(["netstat", "-an"], capture_output=True, text=True, timeout=5, encoding="cp949", errors="replace")
+        listening = [l for l in r.stdout.splitlines()
+                     if f":{port}" in l and "LISTENING" in l]
+        bind_0000 = any("0.0.0.0" in l for l in listening)
+        bind_local = any("127.0.0.1" in l for l in listening)
+        if bind_0000:
+            add("서버 바인딩", True, f"✓ 0.0.0.0:{port} — 모든 인터페이스 리스닝 중 (LAN 접속 가능)")
+        elif bind_local:
+            add("서버 바인딩", False,
+                f"⚠ 127.0.0.1:{port}만 리스닝 — 이 PC에서만 접속 가능",
+                "설정에서 '🏢 사내망 접속 허용' 체크 → 저장 → 서버 재시작")
+        else:
+            add("서버 바인딩", False, f"⚠ 포트 {port}에 리스닝 없음", "서버 실행 상태 확인")
+    except Exception as e:
+        add("서버 바인딩", False, f"확인 실패: {e}")
+
+    # 3) Windows 방화벽 규칙
+    try:
+        r = subprocess.run(["netsh", "advfirewall", "firewall", "show", "rule",
+                            f"name=Inviz {port} TCP"],
+                           capture_output=True, text=True, timeout=5,
+                           encoding="cp949", errors="replace")
+        if "규칙이 없습니다" in r.stdout or "No rules match" in r.stdout or r.returncode != 0:
+            add("방화벽 규칙", False,
+                f"⚠ 인바운드 TCP {port} 허용 규칙이 없음 — 다른 PC에서 접속 차단",
+                "바탕화면 '인비즈_방화벽허용_이PC.bat'를 관리자 권한으로 실행")
+        else:
+            add("방화벽 규칙", True, f"✓ Inviz {port} TCP 규칙 존재 (인바운드 허용)")
+    except Exception as e:
+        add("방화벽 규칙", False, f"확인 실패: {e}")
+
+    # 4) LAN IP로 자기 자신 HTTP 응답
+    if result.get("lan_ip"):
+        try:
+            url = f"http://{result['lan_ip']}:{port}/api/health"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                if resp.status == 200:
+                    add("LAN 접속 자체 테스트", True, f"✓ {url} → HTTP 200")
+        except Exception as e:
+            add("LAN 접속 자체 테스트", False,
+                f"⚠ 자기 자신에게 LAN IP로 접속 실패: {e}",
+                "방화벽/uvicorn 상태 확인")
+
+    # 5) 다른 PC 접속 URL 계산
+    if result.get("lan_ip"):
+        domain = ss.get("net_domain", "") or ""
+        port_str = f":{port}" if port not in (80, 443) else ""
+        scheme = "https" if ss.get("net_https", "0") == "1" else "http"
+        result["access_urls"] = {
+            "direct_ip": f"{scheme}://{result['lan_ip']}{port_str}/",
+            "domain": f"{scheme}://{domain}{port_str}/" if domain else None,
+        }
+
+    # 종합 판정
+    fails = [c for c in result["checks"] if not c["ok"]]
+    result["overall"] = "healthy" if not fails else ("fixable" if all(c.get("fix") for c in fails) else "blocked")
+    result["fail_count"] = len(fails)
+    return JSONResponse(result)
+
+
+# ====== User Intent Ledger — 항목별 복구 ======
+@router.post("/intent/{entry_id}/restore")
+def intent_restore(entry_id: int, db: Session = Depends(get_db)):
+    """특정 삭제 기록을 취소 — 이후 sync가 그 signature를 다시 삽입 가능하게 함."""
+    from user_intent import restore
+    ok = restore(db, entry_id)
+    from urllib.parse import quote
+    if ok:
+        return RedirectResponse(f"/settings/intent?_msg={quote(f'✓ #{entry_id} 복구됨 — 다음 sync 때 재삽입 허용')}", status_code=303)
+    return RedirectResponse(f"/settings/intent?_msg={quote('❌ 항목 없음')}", status_code=303)
+
+
+# ====== 중복 감시 (Dedup Guardian) — GET은 _render_settings(page='dedup')가 처리 ======
+@router.post("/dedup/merge")
+def settings_dedup_merge(db: Session = Depends(get_db), kind: str = Form(...),
+                         confirm: str = Form("")):
+    """중복 그룹 자동 병합 — 가장 오래된 행 유지, 나머지 삭제. 'MERGE' 확인 필요."""
+    if confirm.strip().upper() != "MERGE":
+        return RedirectResponse("/settings/dedup?_msg=" +
+            "❌ 확인 입력이 'MERGE'와 일치하지 않습니다", status_code=303)
+    if kind not in ("sale", "purchase"):
+        return RedirectResponse("/settings/dedup?_msg=❌ kind 오류", status_code=303)
+
+    # DB 자동 백업
+    import shutil
+    from database import DB_PATH
+    backup_dir = DB_PATH.parent / "db_backup"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"app_dedup_{kind}_{ts}.db"
+    try:
+        shutil.copy2(DB_PATH, backup_path)
+    except Exception as e:
+        return RedirectResponse(f"/settings/dedup?_msg=❌ 백업 실패: {e}", status_code=303)
+
+    from dedup import merge_duplicates
+    res = merge_duplicates(db, kind, dry_run=False)
+    from urllib.parse import quote
+    msg = f"✓ {kind} 중복 병합 완료 — {res['groups']}개 그룹에서 {res['rows_removed']}건 삭제 (백업: {backup_path.name})"
+    return RedirectResponse(f"/settings/dedup?_msg={quote(msg)}", status_code=303)
 
 
 @router.get("/{page}", response_class=HTMLResponse)

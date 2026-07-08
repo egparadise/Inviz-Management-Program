@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}거래처 정보 보강 — 인비즈{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-4">
+  <div>
+    <a href="/parties" class="text-xs text-slate-500 hover:underline">← 거래처 목록</a>
+    <h1 class="text-2xl font-bold flex items-center gap-2 mt-1" style="color: var(--inviz-purple);">
+      📊 거래처 정보 자동 보강
+    </h1>
+    <div class="text-sm text-slate-600 mt-1">매출·매입 원본 Excel을 분석하여 사업자번호·담당자·전화·이메일·주소를 추출합니다.</div>
+  </div>
+</div>
+
+{% if result.get('error') %}
+<div class="card mb-4 bg-red-50 border border-red-300">
+  <div class="font-semibold text-red-700">⚠️ 추출 실패</div>
+  <div class="text-sm text-red-600 mt-1">{{ result.error }}</div>
+</div>
+{% else %}
+
+<!-- 요약 -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+  <div class="card text-center">
+    <div class="text-xs text-slate-500">전체 거래처</div>
+    <div class="text-2xl font-bold" style="color: var(--inviz-purple);">{{ result.total_party|default(0)|money }}</div>
+  </div>
+  <div class="card text-center">
+    <div class="text-xs text-slate-500">Excel 추출 회사</div>
+    <div class="text-2xl font-bold text-amber-700">{{ result.merged_keys|default(0)|money }}</div>
+  </div>
+  <div class="card text-center">
+    <div class="text-xs text-slate-500">매칭됨</div>
+    <div class="text-2xl font-bold text-green-700">{{ result.matched|default(0)|money }}</div>
+  </div>
+  <div class="card text-center">
+    <div class="text-xs text-slate-500">갱신 예정</div>
+    <div class="text-2xl font-bold" style="color: var(--inviz-orange);">{{ result.updated|default(0)|money }}</div>
+  </div>
+</div>
+
+<!-- 필드별 보강 수치 -->
+<div class="card mb-4">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">📋 채워질 항목 (빈 칸만 보강 — 기존 값은 보존)</h3>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    {% set fc = result.fill_counts|default({}) %}
+    {% for key, label, icon in [
+      ('biz_no','사업자번호','🆔'),
+      ('contact_person','담당자','👤'),
+      ('ceo','대표자','💼'),
+      ('phone','유선전화','☎️'),
+      ('mobile','휴대폰','📱'),
+      ('fax','팩스','📠'),
+      ('email','이메일','✉️'),
+      ('address','주소','🏢'),
+    ] %}
+    <div class="border rounded-lg p-3 {% if fc.get(key,0) %}bg-purple-50 border-purple-200{% else %}bg-slate-50{% endif %}">
+      <div class="text-xs text-slate-500">{{ icon }} {{ label }}</div>
+      <div class="text-xl font-bold {% if fc.get(key,0) %}text-purple-700{% else %}text-slate-400{% endif %}">
+        +{{ fc.get(key, 0)|money }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if result.matched|default(0) > 0 %}
+<!-- 적용 버튼 -->
+<div class="card mb-4" style="border:2px solid var(--inviz-orange); background:linear-gradient(90deg,#FFF7ED,#F5EDFA);">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="font-bold text-lg" style="color: var(--inviz-purple);">🚀 거래처 {{ result.matched|money }}개에 정보 적용</div>
+      <div class="text-sm text-slate-600 mt-1">
+        ⚠️ 기존 값이 있는 칸은 그대로 두고, 비어있는 칸만 채웁니다. 출처가 <code class="text-xs">enrich_source</code> 칼럼에 기록됩니다.
+      </div>
+    </div>
+    <form method="post" action="/parties/enrich" onsubmit="return confirm('Excel에서 추출한 정보를 {{ result.matched }}개 거래처에 적용합니다. 빈 칸만 채워집니다. 진행할까요?');">
+      <button class="btn btn-accent text-lg px-6 py-3">✓ 적용 (실행)</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- 매칭 실패 (Excel에 있으나 dim_party에 없음 → 신규 등록 후보) -->
+{% if result.unmatched_count|default(0) > 0 %}
+<div class="card mb-4">
+  <h3 class="font-semibold mb-3 text-amber-700">⚠️ 매칭 실패 — Excel에 있으나 거래처 등록 안된 {{ result.unmatched_count|money }}건 (상위 30개)</h3>
+  <table class="table">
+    <thead><tr><th>이름 (Excel)</th><th>제공 가능한 정보</th></tr></thead>
+    <tbody>
+      {% for s in result.unmatched_samples %}
+      <tr>
+        <td>
+          {% for n in s.names %}<span class="badge badge-blue mr-1">{{ n }}</span>{% endfor %}
+        </td>
+        <td>
+          {% for f in s.info_fields %}
+            <span class="badge badge-purple mr-1">{{ f }}</span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="text-xs text-slate-500 mt-2">→ 신규 거래처로 등록한 뒤 다시 보강을 실행하면 함께 채워집니다.</div>
+</div>
+{% endif %}
+
+<!-- 처리 안내 -->
+<div class="card text-xs text-slate-500">
+  <div class="font-semibold text-slate-700 mb-1">📁 스캔된 Excel 파일</div>
+  <ul class="space-y-1 ml-4 list-disc">
+    <li><code>01. 기본서류/(영업계약건)/대리점 연락처.xlsx</code> — 담당자·전화·이메일·주소</li>
+    <li><code>08. 보고서류/매출분류 인비즈 (보고용).xlsx</code> — 거래처별 사업자번호 (2021·2022·2023 시트)</li>
+    <li><code>08. 보고서류/03. 거래처별매입매출세금계산서.xlsx</code> — 담당지역</li>
+    <li><code>01. 기본서류/더존자료/</code> — 매입매출목록, 사이트 정리</li>
+  </ul>
+  <div class="mt-2">파일이 없거나 비어 있으면 해당 항목은 스킵됩니다. 매칭은 이름 정규화(공백·(주)·괄호 제거 후 소문자) 기준이며, 1차 매칭만 적용합니다.</div>
+</div>
+
+{% endif %}
+{% endblock %}

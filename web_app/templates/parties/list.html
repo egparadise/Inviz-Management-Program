@@ -1,14 +1,38 @@
 {% extends "base.html" %}
 {% block title %}거래처 — 인비즈{% endblock %}
 {% block content %}
+{% from '_sort_macros.html' import sort_link %}
 <div class="flex items-center justify-between mb-4">
   <h1 class="text-2xl font-bold text-slate-800">거래처 마스터</h1>
-  <a href="/parties/new" class="btn btn-primary">+ 신규 거래처</a>
+  <div class="flex gap-2">
+    <button type="button" id="bulkToggle" class="btn btn-secondary" onclick="toggleBulkMode()"
+            title="여러 거래처를 체크박스로 선택하여 한꺼번에 삭제">🗑 삭제(다중)</button>
+    <a href="/parties/enrich" class="btn btn-secondary" style="background:linear-gradient(90deg,#FFF7ED,#F5EDFA); color:var(--inviz-purple); border:1px solid #E9D8F4;"
+       title="매출·매입 Excel에서 사업자번호·전화·이메일·주소·담당자를 자동 추출하여 빈 칸에 채움">📊 Excel에서 정보 보강</a>
+    <a href="/parties/new" class="btn btn-primary">+ 신규 거래처</a>
+  </div>
 </div>
 
+{% if request.query_params.get('_msg') %}
+<div class="card mb-4" style="background:#F0FDF4; border:1px solid #86EFAC;">
+  <div class="text-sm text-green-800">{{ request.query_params.get('_msg') }}</div>
+</div>
+{% endif %}
+
+{% if request.query_params.get('enriched') %}
+<div class="card mb-4 bg-green-50 border border-green-300">
+  <div class="text-sm text-green-700">✓ 보강 완료 — {{ request.query_params.get('enriched') }}</div>
+</div>
+{% endif %}
+{% if request.query_params.get('enrich_error') %}
+<div class="card mb-4 bg-red-50 border border-red-300">
+  <div class="text-sm text-red-700">⚠️ 보강 실패: {{ request.query_params.get('enrich_error') }}</div>
+</div>
+{% endif %}
+
 <div class="card mb-4">
-  <form method="get" class="grid grid-cols-4 gap-3">
-    <input type="text" name="q" value="{{ filter.q }}" class="input" placeholder="이름·코드·사업자번호 검색">
+  <form method="get" class="grid grid-cols-1 md:grid-cols-6 gap-3">
+    <input type="text" name="q" value="{{ filter.q }}" class="input md:col-span-2" placeholder="🔍 이름·코드·사업자번호">
     <select name="category" class="select">
       <option value="">구분 전체</option>
       {% for c in categories %}<option value="{{ c }}" {% if filter.category == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
@@ -18,45 +42,154 @@
       <option value="Y" {% if filter.active == 'Y' %}selected{% endif %}>활성(Y)</option>
       <option value="N" {% if filter.active == 'N' %}selected{% endif %}>비활성(N)</option>
     </select>
+    <select name="product" class="select">
+      <option value="">제품 전체</option>
+      {% for p in products %}<option value="{{ p.name }}" {% if filter.product == p.name %}selected{% endif %}>{{ p.code }} · {{ p.name }}</option>{% endfor %}
+    </select>
     <div class="flex gap-2">
       <button class="btn btn-primary flex-1">필터</button>
-      <a href="/parties" class="btn btn-secondary">초기화</a>
+      <a href="/parties" class="btn btn-secondary">↻</a>
     </div>
   </form>
+
+  <!-- 정렬 옵션 -->
+  <div class="flex items-center gap-2 mt-3 flex-wrap text-xs">
+    <span class="text-slate-500">정렬:</span>
+    {% set _qs = 'q=' ~ filter.q ~ '&category=' ~ filter.category ~ '&active=' ~ filter.active ~ '&product=' ~ filter.product %}
+    {% for s, label in [('name','가나다·ABC'), ('code','코드 순'), ('category','구분 순'), ('main_product','제품 순'), ('last_seen','최근 거래일'), ('first_seen','최초 거래일'), ('biz_no','사업자번호')] %}
+      {% set is_active = filter.sort == s %}
+      {% set next_dir = 'desc' if (is_active and filter.dir == 'asc') else 'asc' %}
+      {% set arrow = '▼' if (is_active and filter.dir == 'desc') else ('▲' if is_active else '') %}
+      <a href="?{{ _qs }}&sort={{ s }}&dir={{ next_dir }}"
+         class="px-2 py-1 rounded {% if is_active %}bg-purple-100 text-purple-700 font-bold{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
+        {{ label }} {{ arrow }}
+      </a>
+    {% endfor %}
+  </div>
+
+  {# 초성/알파벳 네비게이션 — 이름 정렬일 때만 #}
+  {% if filter.sort == 'name' and init_counts %}
+  <div class="mt-3 flex flex-wrap gap-1 text-xs items-center">
+    <span class="text-slate-500 mr-1">바로가기:</span>
+    {% set ko = ['ㄱ','ㄴ','ㄷ','ㄹ','ㅁ','ㅂ','ㅅ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'] %}
+    {% for ch in ko %}
+      {% if ch in init_counts %}
+        <a href="?{{ _qs }}&q={{ ch }}" class="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 hover:bg-purple-100"
+           title="{{ ch }}로 시작 {{ init_counts[ch] }}개">{{ ch }} <span class="text-slate-400">{{ init_counts[ch] }}</span></a>
+      {% endif %}
+    {% endfor %}
+    <span class="mx-1 text-slate-300">|</span>
+    {% for ch in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' %}
+      {% if ch in init_counts %}
+        <a href="?{{ _qs }}&q={{ ch }}" class="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700 hover:bg-orange-100"
+           title="{{ ch }}로 시작 {{ init_counts[ch] }}개">{{ ch }} <span class="text-slate-400">{{ init_counts[ch] }}</span></a>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 
 <div class="card">
-  <div class="text-sm text-slate-600 mb-3">총 <span class="font-semibold">{{ total_count|money }}</span>개 거래처</div>
-  <div class="overflow-x-auto">
-    <table class="table">
-      <thead><tr><th>코드</th><th>이름</th><th>구분</th><th>사업자번호</th><th>주거래 제품</th><th>활성</th><th>최종거래</th><th>비고</th><th></th></tr></thead>
-      <tbody>
-        {% for r in rows %}
-        <tr>
-          <td class="font-mono text-xs">{{ r.code }}</td>
-          <td class="font-medium">{{ r.name }}</td>
-          <td><span class="badge badge-blue">{{ r.category or '미분류' }}</span></td>
-          <td class="text-xs text-slate-500">{{ r.biz_no or '' }}</td>
-          <td class="text-xs">{{ r.main_product or '' }}</td>
-          <td>{% if r.active == 'Y' %}<span class="badge badge-green">활성</span>{% else %}<span class="badge badge-gray">비활성</span>{% endif %}</td>
-          <td class="text-xs text-slate-500">{{ r.last_seen|date }}</td>
-          <td class="text-xs text-slate-500">{{ r.note or '' }}</td>
-          <td>
-            <a href="/parties/{{ r.code }}/edit" class="text-blue-600 text-xs">수정</a>
-            <form method="post" action="/parties/{{ r.code }}/delete" class="inline" onsubmit="return confirm('삭제?')">
-              <button class="text-red-600 text-xs ml-2">삭제</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="flex items-center justify-between mb-3">
+    <div class="text-sm text-slate-600">총 <span class="font-semibold">{{ total_count|money }}</span>개 거래처</div>
+    <!-- 다중 삭제 액션바 (삭제 모드에서만 표시) -->
+    <div id="bulkBar" class="hidden items-center gap-2">
+      <span class="text-xs text-slate-500">선택 <b id="bulkCount" class="text-red-600">0</b>개</span>
+      <button type="button" class="btn text-xs px-3 py-1" style="background:#DC2626;color:#fff;"
+              onclick="submitBulkDelete()">🗑 선택 삭제</button>
+      <button type="button" class="btn btn-secondary text-xs px-3 py-1" onclick="toggleBulkMode()">취소</button>
+    </div>
   </div>
+
+  {% set _sqs = 'q=' ~ filter.q ~ '&category=' ~ filter.category ~ '&active=' ~ filter.active ~ '&product=' ~ filter.product %}
+  <form id="bulkForm" method="post" action="/parties/bulk-delete">
+    <input type="hidden" name="back" value="/parties?{{ _sqs }}&sort={{ filter.sort }}&dir={{ filter.dir }}">
+    <div class="overflow-x-auto">
+      <table class="table">
+        <thead>
+          <tr>
+            <th class="bulk-col hidden w-8">
+              <input type="checkbox" id="chkAll" onclick="document.querySelectorAll('.chkRow').forEach(c => c.checked = this.checked); updateBulkCount();">
+            </th>
+            <th>{{ sort_link('code', '코드', filter.sort, filter.dir, _sqs) }}</th>
+            <th>{{ sort_link('name', '이름', filter.sort, filter.dir, _sqs) }}</th>
+            <th>{{ sort_link('category', '구분', filter.sort, filter.dir, _sqs) }}</th>
+            <th>{{ sort_link('biz_no', '사업자번호', filter.sort, filter.dir, _sqs) }}</th>
+            <th>{{ sort_link('main_product', '주거래 제품', filter.sort, filter.dir, _sqs) }}</th>
+            <th>{{ sort_link('active', '활성', filter.sort, filter.dir, _sqs) }}</th>
+            <th>{{ sort_link('last_seen', '최종거래', filter.sort, filter.dir, _sqs) }}</th>
+            <th>{{ sort_link('note', '비고', filter.sort, filter.dir, _sqs) }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td class="bulk-col hidden">
+              <input type="checkbox" class="chkRow" name="codes" value="{{ r.code }}" onclick="updateBulkCount()">
+            </td>
+            <td class="font-mono text-xs">
+              <a href="/parties/{{ r.code }}" class="text-purple-700 hover:underline">{{ r.code }}</a>
+            </td>
+            <td class="font-medium">
+              <a href="/parties/{{ r.code }}" class="text-purple-700 hover:underline">{{ r.name }}</a>
+            </td>
+            <td><span class="badge badge-blue">{{ r.category or '미분류' }}</span></td>
+            <td class="text-xs text-slate-500 font-mono">{{ r.biz_no or '' }}</td>
+            <td class="text-xs">{{ r.main_product or '' }}</td>
+            <td>{% if r.active == 'Y' %}<span class="badge badge-green">활성</span>{% else %}<span class="badge badge-gray">비활성</span>{% endif %}</td>
+            <td class="text-xs text-slate-500">{{ r.last_seen|date }}</td>
+            <td class="text-xs text-slate-500">{{ r.note or '' }}</td>
+            <td>
+              <a href="/parties/{{ r.code }}" class="text-purple-700 text-xs" title="상세">📂</a>
+              <a href="/parties/{{ r.code }}/edit" class="text-blue-600 text-xs ml-2">수정</a>
+              <button type="button" class="text-red-600 text-xs ml-2"
+                      onclick="if(confirm('{{ r.name }} 삭제?')){const f=document.createElement('form');f.method='post';f.action='/parties/{{ r.code }}/delete';document.body.appendChild(f);f.submit();}">삭제</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+
   <div class="flex justify-center gap-2 mt-4">
-    {% set qs = '&q=' ~ filter.q ~ '&category=' ~ filter.category ~ '&active=' ~ filter.active %}
+    {% set qs = '&' ~ _sqs ~ '&sort=' ~ filter.sort ~ '&dir=' ~ filter.dir %}
     {% if page > 1 %}<a href="?page={{ page-1 }}{{ qs }}" class="btn btn-secondary">이전</a>{% endif %}
     <span class="px-3 py-2 text-sm text-slate-600">{{ page }} / {{ total_pages }}</span>
     {% if page < total_pages %}<a href="?page={{ page+1 }}{{ qs }}" class="btn btn-secondary">다음</a>{% endif %}
   </div>
 </div>
+
+<script>
+  // ===== 다중 선택 삭제 모드 =====
+  let bulkMode = false;
+  function toggleBulkMode() {
+    bulkMode = !bulkMode;
+    document.querySelectorAll('.bulk-col').forEach(el => el.classList.toggle('hidden', !bulkMode));
+    const bar = document.getElementById('bulkBar');
+    bar.classList.toggle('hidden', !bulkMode);
+    bar.classList.toggle('flex', bulkMode);
+    const btn = document.getElementById('bulkToggle');
+    btn.textContent = bulkMode ? '✖ 삭제모드 해제' : '🗑 삭제(다중)';
+    btn.style.background = bulkMode ? '#FEE2E2' : '';
+    btn.style.color = bulkMode ? '#DC2626' : '';
+    if (!bulkMode) {
+      document.querySelectorAll('.chkRow').forEach(c => c.checked = false);
+      const all = document.getElementById('chkAll');
+      if (all) all.checked = false;
+      updateBulkCount();
+    }
+  }
+  function updateBulkCount() {
+    const n = document.querySelectorAll('.chkRow:checked').length;
+    document.getElementById('bulkCount').textContent = n;
+  }
+  function submitBulkDelete() {
+    const n = document.querySelectorAll('.chkRow:checked').length;
+    if (!n) { alert('삭제할 거래처를 체크하세요.'); return; }
+    if (!confirm(`선택한 ${n}개 거래처를 삭제합니다.\n(자동 DB 백업 후 진행 — 매출·매입 거래 데이터는 유지됩니다)\n진행할까요?`)) return;
+    document.getElementById('bulkForm').submit();
+  }
+</script>
 {% endblock %}

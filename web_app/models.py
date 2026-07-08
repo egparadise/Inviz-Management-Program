@@ -29,6 +29,26 @@ class Party(Base):
     last_seen: Mapped[Optional[date]] = mapped_column(Date)
     contact_person: Mapped[Optional[str]] = mapped_column(String(50))
     phone: Mapped[Optional[str]] = mapped_column(String(40))
+    mobile: Mapped[Optional[str]] = mapped_column(String(40))
+    fax: Mapped[Optional[str]] = mapped_column(String(40))
+    email: Mapped[Optional[str]] = mapped_column(String(120))
+    address: Mapped[Optional[str]] = mapped_column(String(300))
+    ceo: Mapped[Optional[str]] = mapped_column(String(50))
+    enrich_source: Mapped[Optional[str]] = mapped_column(String(200))
+    # 홈택스 거래처정보 확장
+    sub_biz_no: Mapped[Optional[str]] = mapped_column(String(10))    # 종사업장번호
+    biz_type: Mapped[Optional[str]] = mapped_column(String(60))      # 업태
+    biz_item: Mapped[Optional[str]] = mapped_column(String(60))      # 종목
+    is_main: Mapped[Optional[str]] = mapped_column(String(1), default="N")  # 주거래처
+    dept_main: Mapped[Optional[str]] = mapped_column(String(60))     # 주담당부서명
+    dept_sub: Mapped[Optional[str]] = mapped_column(String(60))      # 부담당부서명
+    contact_person2: Mapped[Optional[str]] = mapped_column(String(50))  # 부담당자명
+    phone2: Mapped[Optional[str]] = mapped_column(String(40))
+    mobile2: Mapped[Optional[str]] = mapped_column(String(40))
+    fax2: Mapped[Optional[str]] = mapped_column(String(40))
+    email2: Mapped[Optional[str]] = mapped_column(String(120))
+    contact_note: Mapped[Optional[str]] = mapped_column(String(200))   # 주담당자 비고
+    contact_note2: Mapped[Optional[str]] = mapped_column(String(200))  # 부담당자 비고
     note: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -325,6 +345,18 @@ class Contract(Base):
     owner: Mapped[Optional[str]] = mapped_column(String(50))
     phone: Mapped[Optional[str]] = mapped_column(String(40))
     status: Mapped[Optional[str]] = mapped_column(String(20), index=True)  # 진행/만료/해지
+    # 계약서 파일 + 전자서명
+    doc_kind: Mapped[Optional[str]] = mapped_column(String(40))       # 계약서 종류 (서비스 유지보수 등)
+    file_path: Mapped[Optional[str]] = mapped_column(String(400))     # 업로드 계약서 파일
+    file_name: Mapped[Optional[str]] = mapped_column(String(200))
+    sign_token: Mapped[Optional[str]] = mapped_column(String(40))     # 고객 서명 공유 링크 토큰
+    supplier_sign: Mapped[Optional[str]] = mapped_column(Text)        # 서명 이미지 (dataURL)
+    supplier_signer: Mapped[Optional[str]] = mapped_column(String(50))
+    supplier_signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    customer_sign: Mapped[Optional[str]] = mapped_column(Text)
+    customer_signer: Mapped[Optional[str]] = mapped_column(String(50))
+    customer_signed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    sign_status: Mapped[Optional[str]] = mapped_column(String(20), default="none")  # none/partial/complete
     note: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -581,6 +613,39 @@ class ImportBatch(Base):
     undone: Mapped[str] = mapped_column(String(1), default="N")  # Y=되돌림
 
 
+class UserIntentLedger(Base):
+    """B20: 사용자 의도 원장 (User Intent Ledger)
+
+    사용자가 명시적으로 삭제/편집/거부한 데이터의 signature를 영구 기록한다.
+    자동 동기화(sync)가 같은 파일을 다시 읽어도 여기 기록된 signature는
+    재삽입되지 않아, 사용자의 의도가 시간 흐름을 넘어 보존된다.
+
+    signature: sha1(kind|txn_date|norm_party|supply)[:16] — dedup 키와 동일 규칙
+    """
+    __tablename__ = "user_intent_ledger"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
+    action: Mapped[str] = mapped_column(String(20), index=True)  # delete / edit / reject / restore
+    kind: Mapped[str] = mapped_column(String(20), index=True)    # sale / purchase / payroll / expense / rental
+    signature: Mapped[str] = mapped_column(String(40), index=True)  # sha1 16
+    # 원본 정보 (표시용, 매칭 검증용)
+    txn_date: Mapped[Optional[date]] = mapped_column(Date)
+    party_name: Mapped[Optional[str]] = mapped_column(String(200))
+    supply: Mapped[Optional[float]] = mapped_column(Numeric(18, 2))
+    source_file: Mapped[Optional[str]] = mapped_column(String(200), index=True)  # 원본 파일명 (있을 때)
+    source_row: Mapped[Optional[int]] = mapped_column(Integer)
+    original_id: Mapped[Optional[int]] = mapped_column(Integer)  # 삭제 전 fact 테이블 id
+    # edit 시 new_supply/new_party 등을 note에 JSON으로 저장
+    reason: Mapped[Optional[str]] = mapped_column(String(300))
+    user: Mapped[Optional[str]] = mapped_column(String(60))
+    client_ip: Mapped[Optional[str]] = mapped_column(String(60))
+    # 만료 (기본 영구 = null)
+    suppress_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # 재sync 시 이 시그니처가 몇 번 차단됐는지 카운트 (감시용)
+    prevention_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_prevented_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
 class ActivityLog(Base):
     """B14: 활동 로그 — 모든 작업 기록"""
     __tablename__ = "activity_log"
@@ -620,11 +685,25 @@ class CompanyInfo(Base):
     email: Mapped[Optional[str]] = mapped_column(String(120))                     # 이메일
     website: Mapped[Optional[str]] = mapped_column(String(200))                   # 홈페이지
     industry: Mapped[Optional[str]] = mapped_column(String(200))                  # 업종/사업분야
+    biz_type: Mapped[Optional[str]] = mapped_column(String(60), default="제조업")  # 업태 (세금계산서용)
+    biz_item: Mapped[Optional[str]] = mapped_column(String(60), default="의료기기")  # 종목 (세금계산서용)
     capital: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), default=0)   # 자본금
     employee_count: Mapped[Optional[int]] = mapped_column(Integer, default=0)     # 임직원 수
     executives_json: Mapped[Optional[str]] = mapped_column(Text)   # 임원 [{name,title,note}]
     shareholders_json: Mapped[Optional[str]] = mapped_column(Text) # 주주 [{name,shares,ratio,note}]
     note: Mapped[Optional[str]] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class BizStatus(Base):
+    """투자사 보고서 — 사업현황 (구분×당분기실적/차분기계획, 직접 입력·수정)"""
+    __tablename__ = "report_biz_status"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    quarter: Mapped[int] = mapped_column(Integer, nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)   # 영업/연구개발/재무 성장
+    period_col: Mapped[str] = mapped_column(String(10), nullable=False) # current(당분기실적)/next(차분기계획)
+    content: Mapped[Optional[str]] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -650,6 +729,8 @@ class TaxInvoice(Base):
     invoice_no: Mapped[Optional[str]] = mapped_column(String(40))    # 국세청 승인번호(있으면)
     write_date: Mapped[Optional[date]] = mapped_column(Date, index=True)  # 작성일자
     issue_at: Mapped[Optional[datetime]] = mapped_column(DateTime)   # 발행/수신 일시
+    issue_date: Mapped[Optional[date]] = mapped_column(Date)         # 발급일자 (홈택스)
+    transmit_date: Mapped[Optional[date]] = mapped_column(Date)      # 전송일자 (국세청)
     send_date: Mapped[Optional[date]] = mapped_column(Date, index=True)   # 예약 발송일(status=scheduled)
     # 공급자(매출=우리, 매입=거래처) / 공급받는자(매출=거래처, 매입=우리)
     supplier_corp_no: Mapped[Optional[str]] = mapped_column(String(20))
@@ -658,6 +739,15 @@ class TaxInvoice(Base):
     buyer_corp_no: Mapped[Optional[str]] = mapped_column(String(20))
     buyer_name: Mapped[Optional[str]] = mapped_column(String(200))
     buyer_email: Mapped[Optional[str]] = mapped_column(String(200))
+    # 홈택스 양식 확장 — 공급받는자 상세
+    inv_kind: Mapped[Optional[str]] = mapped_column(String(20), default="일반")   # 일반/영세율/위수탁/위수탁영세율
+    buyer_kind: Mapped[Optional[str]] = mapped_column(String(20), default="사업자등록번호")  # 사업자등록번호/주민(외국인)등록번호/미등록번호
+    buyer_sub_no: Mapped[Optional[str]] = mapped_column(String(10))               # 종사업장 번호
+    buyer_ceo: Mapped[Optional[str]] = mapped_column(String(50))                  # 성명(대표자)
+    buyer_addr: Mapped[Optional[str]] = mapped_column(String(300))                # 사업장 주소
+    buyer_biztype: Mapped[Optional[str]] = mapped_column(String(60))              # 업태
+    buyer_bizitem: Mapped[Optional[str]] = mapped_column(String(60))              # 종목
+    buyer_email2: Mapped[Optional[str]] = mapped_column(String(200))              # 이메일 2
     party_name: Mapped[Optional[str]] = mapped_column(String(200), index=True)  # 상대 거래처(간편표시)
     item_desc: Mapped[Optional[str]] = mapped_column(String(300))    # 대표 품목
     items_json: Mapped[Optional[str]] = mapped_column(Text)          # 품목 라인 [{품목,규격,수량,단가,공급가액,세액}]
@@ -667,6 +757,12 @@ class TaxInvoice(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     # draft(작성중)/ready(발행대기)/issued(발행완료)/sent(전송완료)/received(수신)/error
     issue_method: Mapped[Optional[str]] = mapped_column(String(20), default="manual")  # manual/hometax/popbill/barobill
+    # 결제수단 (홈택스 양식) + 청구/영수 구분
+    cash_amt: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), default=0)    # 현금
+    check_amt: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), default=0)   # 수표
+    bill_amt: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), default=0)    # 어음
+    credit_amt: Mapped[Optional[float]] = mapped_column(Numeric(18, 2), default=0)  # 외상미수금
+    claim_kind: Mapped[Optional[str]] = mapped_column(String(10), default="청구")   # 청구/영수
     source: Mapped[Optional[str]] = mapped_column(String(20), default="manual")        # manual/email/hometax/api
     notified: Mapped[str] = mapped_column(String(1), default="N")    # 수신 알림 발송 여부
     note: Mapped[Optional[str]] = mapped_column(Text)

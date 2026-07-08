@@ -35,7 +35,7 @@ except Exception as e:
 async def auth_middleware(request: Request, call_next):
     import time as _t
     import activity
-    PUBLIC_PATHS = {"/login", "/static", "/api/docs", "/openapi.json", "/api/health"}
+    PUBLIC_PATHS = {"/login", "/static", "/api/docs", "/openapi.json", "/api/health", "/esign"}
     path = request.url.path
     is_public = any(path == p or path.startswith(p + "/") for p in PUBLIC_PATHS)
     if not is_public:
@@ -225,6 +225,7 @@ app.include_router(product_sales.router, prefix="/product-sales", tags=["제품�
 app.include_router(parties.router, prefix="/parties", tags=["거래처"])
 app.include_router(products.router, prefix="/products", tags=["제품"])
 app.include_router(contracts.router, prefix="/contracts", tags=["계약"])
+app.include_router(contracts.esign_router, prefix="/esign", tags=["전자서명(고객)"])
 app.include_router(payroll.router, prefix="/payroll", tags=["급여"])
 app.include_router(loans.router, prefix="/loans", tags=["차입금"])
 app.include_router(banking.router, prefix="/banking", tags=["자금/계좌"])

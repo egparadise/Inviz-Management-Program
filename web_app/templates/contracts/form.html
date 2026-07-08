@@ -2,7 +2,7 @@
 {% block title %}{% if row %}계약 수정{% else %}계약 신규{% endif %}{% endblock %}
 {% block content %}
 <h1 class="text-2xl font-bold mb-4 text-slate-800">{% if row %}계약 수정{% else %}계약 신규 등록{% endif %}</h1>
-<form method="post" action="{% if row %}/contracts/{{ row.id }}{% else %}/contracts{% endif %}" class="card max-w-4xl">
+<form method="post" action="{% if row %}/contracts/{{ row.id }}{% else %}/contracts{% endif %}" class="card max-w-4xl" enctype="multipart/form-data">
   <div class="grid grid-cols-3 gap-4">
     <div>
       <label class="text-sm font-medium text-slate-700">계약ID *</label>
@@ -12,6 +12,39 @@
     <div class="col-span-2">
       <label class="text-sm font-medium text-slate-700">계약명 *</label>
       <input type="text" name="name" class="input" required value="{{ row.name if row else '' }}">
+    </div>
+
+    <!-- 계약서 종류 + 파일 업로드 + 양식 미리보기 -->
+    <div>
+      <label class="text-sm font-medium text-slate-700">계약서 종류 <span class="text-xs text-slate-400">(선택 시 표준 양식 표시)</span></label>
+      <select name="doc_kind" id="docKindSel" class="select" onchange="loadDocTemplate(this.value)">
+        {% set dk = row.doc_kind if row else '' %}
+        <option value="">선택</option>
+        {% for t in ['서비스 유지보수 계약','영업계약','원격판독 계약','장비판매 계약','인공지능 사용 계약'] %}
+        <option value="{{ t }}" {% if dk == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">계약서 파일 업로드 <span class="text-xs text-slate-400">(PDF·JPG·PNG·HWP·DOC 등, 30MB 이하)</span></label>
+      <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.bmp,.webp,.hwp,.doc,.docx"
+             class="mt-1 block w-full text-sm text-slate-600
+             file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold
+             file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200 cursor-pointer">
+      {% if row and row.file_name %}
+      <div class="text-xs text-slate-500 mt-1">📎 현재 파일: <a href="/contracts/{{ row.id }}/file" target="_blank" class="text-purple-700 underline">{{ row.file_name }}</a> (새 파일 선택 시 교체)</div>
+      {% endif %}
+    </div>
+
+    <!-- 양식 미리보기 (종류 선택 시 표시) -->
+    <div class="col-span-3 hidden" id="docPreviewBox">
+      <div class="border rounded-lg p-4" style="background:#FAF8FF; border-color:#E9D8F4;">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-semibold text-sm" style="color:var(--inviz-purple);">📜 표준 양식 미리보기: <span id="docPreviewTitle"></span></div>
+          <span class="text-xs text-slate-400">등록 후 서명 페이지에서 계약 데이터가 채워진 전문이 표시됩니다</span>
+        </div>
+        <div id="docPreviewBody" class="text-xs text-slate-600 space-y-2" style="max-height:260px; overflow-y:auto;"></div>
+      </div>
     </div>
     <div>
       <label class="text-sm font-medium text-slate-700">구분</label>
@@ -115,9 +148,14 @@
       <textarea name="note" class="textarea" rows="2">{{ row.note if row else '' }}</textarea>
     </div>
   </div>
-  <div class="flex gap-2 mt-6">
+  <div class="flex gap-2 mt-6 items-center">
     <button class="btn btn-primary">{% if row %}수정{% else %}등록{% endif %}</button>
     <a href="/contracts" class="btn btn-secondary">취소</a>
+    {% if row %}
+    <a href="/contracts/{{ row.id }}/sign" class="btn ml-auto" style="background:linear-gradient(90deg,#F5EDFA,#FFF7ED); color:var(--inviz-purple); border:1px solid #E9D8F4;">✍ 전자서명 페이지</a>
+    {% else %}
+    <span class="text-xs text-slate-400 ml-auto">계약서 종류 또는 파일이 있으면 등록 후 서명 페이지로 이동합니다</span>
+    {% endif %}
   </div>
 </form>
 <script>
@@ -125,5 +163,24 @@ document.querySelector('input[name=party_name]').addEventListener('change', func
   const opt = document.querySelector(`#party-list option[value="${e.target.value}"]`);
   if (opt) document.querySelector('input[name=party_code]').value = opt.dataset.code;
 });
+
+// 계약서 종류 선택 → 표준 양식 미리보기
+async function loadDocTemplate(kind) {
+  const box = document.getElementById('docPreviewBox');
+  if (!kind) { box.classList.add('hidden'); return; }
+  try {
+    const r = await fetch(`/contracts/api/template/${encodeURIComponent(kind)}`);
+    const d = await r.json();
+    if (!d.ok) { box.classList.add('hidden'); return; }
+    document.getElementById('docPreviewTitle').textContent = d.title;
+    document.getElementById('docPreviewBody').innerHTML = d.articles.map(a =>
+      `<div><div class="font-semibold text-slate-700">${a.head}</div>
+       <div style="white-space:pre-wrap;">${a.body}</div></div>`).join('');
+    box.classList.remove('hidden');
+  } catch (e) { box.classList.add('hidden'); }
+}
+// 수정 화면에서 이미 종류가 선택돼 있으면 자동 표시
+const _dk = document.getElementById('docKindSel');
+if (_dk && _dk.value) loadDocTemplate(_dk.value);
 </script>
 {% endblock %}

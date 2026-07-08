@@ -400,18 +400,20 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', -apple-system, sans-ser
   <div class="container mx-auto px-6 py-2 flex items-center gap-3">
     <button type="button" id="mobileMenuBtn" class="btn btn-secondary px-2 py-1" onclick="toggleMobileNav()" title="메뉴">☰</button>
     <span class="text-xs font-bold flex items-center gap-1" style="color: var(--inviz-purple);">
-      <span style="font-size:1.2em;">🤖</span> AI 검색
+      <span style="font-size:1.2em;">🤖</span> AI 어시스턴트
     </span>
     <a href="/settings" class="ai-badge {% if not ai_ready() %}off{% endif %}" title="현재 사용 중인 AI 모델 — 클릭하면 설정에서 변경">
       <span class="dot"></span>🧠 {{ ai_label() }}
     </a>
     <form id="chatBarForm" class="flex-1 flex gap-2" onsubmit="return submitFromBar(event);">
       <input id="chatBarInput" type="text" class="input flex-1"
-        placeholder="질문하거나, 파일을 이 곳에 끌어다 놓으면 AI가 분석합니다 (Excel·CSV·PDF). Ctrl+K로 포커스."
+        placeholder="❓질문(DB+RAG) · 🛠시스템 진단·개선 · 📥파일 끌어다 놓으면 AI 분석 — Ctrl+K"
         autocomplete="off">
-      <button type="submit" class="btn btn-accent" id="chatBarSubmit">검색 →</button>
+      <button type="submit" class="btn btn-accent" id="chatBarSubmit" title="자동 모드로 전송">검색 →</button>
+      <button type="button" class="btn btn-secondary" onclick="askSystem('quickbar')" title="시스템 모드로 질문 — 프로그램 구조·기능·개선 제안"
+              style="background:linear-gradient(90deg,#FFF7ED,#F5EDFA); color:var(--inviz-purple); border:1px solid #E9D8F4;">🛠 시스템</button>
       <button type="button" class="btn btn-secondary" onclick="toggleChatPanel()">💬 채팅</button>
-      <button type="button" class="btn btn-secondary flex items-center gap-1" onclick="document.getElementById('dndFileInput').click()" title="파일을 선택하거나 검색창에 끌어다 놓으면 AI가 자동으로 매출·매입·급여·비용으로 분류">📎 AI 분류</button>
+      <button type="button" class="btn btn-secondary flex items-center gap-1" onclick="document.getElementById('dndFileInput').click()" title="파일 선택 또는 끌어다 놓기 — AI가 분석하여 매출·매입·급여·비용으로 분류">📎 첨부 분석</button>
     </form>
   </div>
   <!-- 드래그앤드롭 오버레이 -->
@@ -427,7 +429,7 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', -apple-system, sans-ser
   </div>
   <!-- 숨은 업로드 폼 (드롭/파일선택 → /ai-classify/analyze 로 전송) -->
   <form id="dndForm" method="post" action="/ai-classify/analyze" enctype="multipart/form-data" class="hidden">
-    <input type="file" id="dndFileInput" name="file" accept=".xlsx,.xlsm,.xls,.csv,.pdf">
+    <input type="file" id="dndFileInput" name="file" accept=".xlsx,.xlsm,.xls,.csv,.pdf" multiple>
     <input type="hidden" name="model" value="{{ setting('ai_default_model','llama3.1:latest') }}">
   </form>
 </div>
@@ -463,6 +465,9 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', -apple-system, sans-ser
     <label class="flex items-center gap-1 cursor-pointer" title="LLM 호출 없이 벡터 검색 결과만 표시. 인덱스 품질 테스트용.">
       <input type="radio" name="chatMode" value="search" {% if dmode=='search' %}checked{% endif %}> <span>🧪 검색만</span>
     </label>
+    <label class="flex items-center gap-1 cursor-pointer" title="프로젝트 구조·DB통계·운영상태를 컨텍스트로 주입하여 시스템 구조·기능·개선에 답변">
+      <input type="radio" name="chatMode" value="system" {% if dmode=='system' %}checked{% endif %}> <span>🛠 시스템</span>
+    </label>
     <span class="border-l border-slate-300 mx-1 h-4"></span>
     {% set dm = setting('ai_default_model','llama3.1:latest') %}
     <select id="chatModelSel" class="text-xs border rounded px-1 py-0.5">
@@ -488,15 +493,27 @@ body { font-family: 'Pretendard', 'Apple SD Gothic Neo', -apple-system, sans-ser
 
   <!-- 빠른 액션 -->
   <div class="border-t bg-purple-50 px-3 py-2 flex-shrink-0">
-    <div class="text-xs text-slate-500 mb-1">빠른 질문:</div>
-    <div class="flex flex-wrap gap-1">
+    <div class="text-xs text-slate-500 mb-1">💼 데이터 질문 (DB+RAG):</div>
+    <div class="flex flex-wrap gap-1 mb-2">
       <button onclick="quickAsk('이번 달 매출')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">이번 달 매출</button>
       <button onclick="quickAsk('올해 KPI')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">올해 KPI</button>
       <button onclick="quickAsk('올해 재무제표')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">📑 올해 재무제표</button>
       <button onclick="quickAsk('30일 이내 만료 인증서')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">만료 임박 인증서</button>
       <button onclick="quickAsk('차입금 잔액')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">차입금 잔액</button>
       <button onclick="quickAsk('써밋영상의원 거래내역')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">써밋영상 거래</button>
-      <button onclick="quickAsk('2024년 매출')" class="text-xs px-2 py-1 bg-white border rounded hover:bg-purple-100">2024 매출</button>
+    </div>
+    <div class="text-xs text-slate-500 mb-1">🛠 시스템 진단·개선:</div>
+    <div class="flex flex-wrap gap-1">
+      <button onclick="askSystem('이 프로그램은 어떻게 구성되어 있는지 모듈·테이블·라우터 단위로 설명해줘')"
+              class="text-xs px-2 py-1 bg-white border rounded hover:bg-orange-100" style="border-color:#FED7AA;">📐 시스템 구조 설명</button>
+      <button onclick="askSystem('현재 상태에서 가장 시급한 개선 사항 3가지를 What/Why/How/영향도 형식으로 알려줘')"
+              class="text-xs px-2 py-1 bg-white border rounded hover:bg-orange-100" style="border-color:#FED7AA;">🔧 개선 제안 3가지</button>
+      <button onclick="askSystem('오늘 시스템 전체 상태 — DB·sync·무결성·RAG 인덱스를 점검하고 이상 징후를 보고해줘')"
+              class="text-xs px-2 py-1 bg-white border rounded hover:bg-orange-100" style="border-color:#FED7AA;">📊 오늘의 상태 점검</button>
+      <button onclick="askSystem('RAG 검색 정확도를 높이기 위한 청크·임베딩·하이브리드 검색 개선 방안을 제시해줘')"
+              class="text-xs px-2 py-1 bg-white border rounded hover:bg-orange-100" style="border-color:#FED7AA;">🔍 RAG 개선안</button>
+      <button onclick="askSystem('자가발전 시스템(self_dev)에서 보강이 필요한 부분과 위험 감지 임계값을 검토해줘')"
+              class="text-xs px-2 py-1 bg-white border rounded hover:bg-orange-100" style="border-color:#FED7AA;">🤖 자가발전 진단</button>
     </div>
   </div>
 
@@ -1119,6 +1136,27 @@ function quickAsk(q) {
   submitChat(null, false);
 }
 
+// 🛠 시스템 컨설턴트 모드로 질문 — 자동으로 system 라디오 선택
+function askSystem(q) {
+  const sysRadio = document.querySelector('input[name=chatMode][value="system"]');
+  if (sysRadio) sysRadio.checked = true;
+  if (q === 'quickbar') {
+    q = (document.getElementById('chatBarInput').value || '').trim();
+    if (!q) {
+      // 비어있으면 채팅 패널을 열고 시스템 모드 선택 + 빈 입력 안내
+      openChatPanel();
+      document.getElementById('chatPanelInput').focus();
+      document.getElementById('chatPanelInput').placeholder = '시스템·기능·개선에 대해 질문하세요 (예: 새 메뉴 추가 계획)';
+      return;
+    }
+    document.getElementById('chatBarInput').value = '';
+  }
+  const p = document.getElementById('chatPanel');
+  if (p.classList.contains('translate-x-full')) toggleChatPanel();
+  document.getElementById('chatPanelInput').value = q;
+  submitChat(null, true);
+}
+
 // 키보드 단축키: Ctrl+K / Cmd+K
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -1138,36 +1176,108 @@ document.addEventListener('keydown', e => {
   const ALLOWED = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf'];
   let dragDepth = 0;
 
-  // 파일 선택(📎 버튼) 또는 드롭 → 폼 제출
+  function _ok(name) {
+    name = (name || '').toLowerCase();
+    return ALLOWED.some(ext => name.endsWith(ext));
+  }
+
+  // 단일 파일 — 기존 폼 제출 경로 (분석 결과 페이지로 이동)
   function submitWithFile(file) {
-    const name = (file.name || '').toLowerCase();
-    if (!ALLOWED.some(ext => name.endsWith(ext))) {
+    if (!_ok(file.name)) {
       alert('지원하지 않는 형식입니다.\n허용: Excel(.xlsx/.xls), CSV(.csv), PDF(.pdf)');
       return;
     }
-    // DataTransfer로 file input에 파일 주입 후 제출 (→ /ai-classify/analyze 결과 페이지로 이동)
     try {
       const dt = new DataTransfer();
       dt.items.add(file);
       fileInput.files = dt.files;
-    } catch (e) {
-      // 일부 브라우저 폴백: 그냥 제출 시도
-    }
-    // 분석 진행 안내 (페이지 전환 전 잠깐 표시)
+    } catch (e) {}
     overlay.classList.remove('hidden');
     overlay.querySelector('.font-bold').textContent = '🤖 AI가 분석 중입니다... 잠시만 기다려 주세요';
     form.submit();
   }
 
-  // 파일 선택창에서 고른 경우
+  // 다중 파일 — 채팅 패널에 진행 카드를 띄우고 한 파일씩 순차 분석
+  async function batchAnalyzeFiles(files) {
+    const valid = Array.from(files).filter(f => _ok(f.name));
+    if (!valid.length) {
+      alert('지원하지 않는 형식입니다.\n허용: Excel(.xlsx/.xls), CSV(.csv), PDF(.pdf)');
+      return;
+    }
+    overlay.classList.add('hidden');
+
+    // 채팅 패널 열고 진행 카드 추가
+    const p = document.getElementById('chatPanel');
+    if (p.classList.contains('translate-x-full')) toggleChatPanel();
+    const msg = appendMessage('assistant', `
+      <div class="text-xs font-semibold mb-2" style="color: var(--inviz-purple);">
+        📎 첨부 분석 — ${valid.length}개 파일
+      </div>
+      <div id="batchProg" class="space-y-1 text-xs"></div>
+      <div id="batchSummary" class="mt-3 hidden text-xs"></div>
+    `);
+    const progBox = msg.querySelector('#batchProg');
+    const sumBox = msg.querySelector('#batchSummary');
+
+    let okCount = 0, failCount = 0;
+    const results = [];
+    for (let i = 0; i < valid.length; i++) {
+      const f = valid[i];
+      const row = document.createElement('div');
+      row.className = 'flex items-center justify-between border-b border-slate-100 py-1';
+      row.innerHTML = `<span class="truncate" style="max-width:60%;" title="${escapeHtml(f.name)}">${i+1}. ${escapeHtml(f.name)}</span>
+                       <span class="text-slate-400" data-st>⏳ 분석 중...</span>`;
+      progBox.appendChild(row);
+      const stEl = row.querySelector('[data-st]');
+      try {
+        const fd = new FormData();
+        fd.append('file', f);
+        fd.append('json', '1');
+        const r = await fetch('/ai-classify/analyze', { method: 'POST', body: fd });
+        if (r.ok) {
+          const ct = r.headers.get('content-type') || '';
+          let domain = '', detail = '';
+          if (ct.includes('application/json')) {
+            const data = await r.json();
+            domain = data.domain || data.intent || data.kind || '분석 완료';
+            detail = data.row_count != null ? ` · ${data.row_count.toLocaleString()}행` : '';
+          } else {
+            // HTML 응답 — 별도 페이지 결과
+            domain = '결과 페이지 생성됨';
+          }
+          stEl.innerHTML = `<span class="text-green-700">✓ ${escapeHtml(domain)}${detail}</span>`;
+          results.push({name: f.name, ok: true, domain});
+          okCount++;
+        } else {
+          stEl.innerHTML = `<span class="text-red-600">✗ HTTP ${r.status}</span>`;
+          results.push({name: f.name, ok: false});
+          failCount++;
+        }
+      } catch (e) {
+        stEl.innerHTML = `<span class="text-red-600">✗ ${escapeHtml(String(e).slice(0,60))}</span>`;
+        results.push({name: f.name, ok: false});
+        failCount++;
+      }
+      const m = document.getElementById('chatMessages');
+      if (m) m.scrollTop = m.scrollHeight;
+    }
+    sumBox.classList.remove('hidden');
+    sumBox.innerHTML = `<div class="font-semibold ${failCount? 'text-amber-700':'text-green-700'}">
+      ✓ 완료 ${okCount}건 ${failCount? `· ⚠ 실패 ${failCount}건`:''}</div>
+      <div class="text-slate-500 mt-1">결과 페이지: <a href="/ai-classify" class="text-purple-700 underline">분석 이력</a></div>`;
+  }
+
+  // 파일 선택창 — 1개면 기존 동작, 여러개면 batch
   fileInput.addEventListener('change', () => {
-    if (fileInput.files && fileInput.files.length) submitWithFile(fileInput.files[0]);
+    const fs = fileInput.files;
+    if (!fs || !fs.length) return;
+    if (fs.length === 1) submitWithFile(fs[0]);
+    else batchAnalyzeFiles(fs);
   });
 
-  // 드래그 이벤트 — 페이지 전체에서 받되 바 위에 오버레이 표시
+  // 드래그 이벤트
   ['dragenter', 'dragover'].forEach(evt => {
     document.addEventListener(evt, e => {
-      // 파일 드래그일 때만
       if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
       e.preventDefault();
       if (evt === 'dragenter') dragDepth++;
@@ -1186,11 +1296,9 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     dragDepth = 0;
     const files = e.dataTransfer.files;
-    if (files && files.length) {
-      submitWithFile(files[0]);
-    } else {
-      overlay.classList.add('hidden');
-    }
+    if (!files || !files.length) { overlay.classList.add('hidden'); return; }
+    if (files.length === 1) submitWithFile(files[0]);
+    else batchAnalyzeFiles(files);
   });
 })();
 

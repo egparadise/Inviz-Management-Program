@@ -162,8 +162,16 @@ def list_sales(
         .order_by(ImportBatch.id.desc()).limit(5)
     ).scalars().all()
 
+    # 현재 페이지 거래처 코드 → 사업자번호 매핑 (한 번에 조회)
+    party_codes = list({r.party_code for r in rows if r.party_code})
+    party_biz_map = {}
+    if party_codes:
+        for p in db.execute(select(Party).where(Party.code.in_(party_codes))).scalars():
+            party_biz_map[p.code] = p.biz_no
+
     return templates.TemplateResponse("sales/list.html", {
         "request": request,
+        "party_biz_map": party_biz_map,
         "rows": rows,
         "total_count": total_count,
         "sum_supply": sum_supply, "sum_vat": sum_vat, "sum_total": sum_total,
@@ -385,6 +393,7 @@ async def import_xlsx_preview(
     file: UploadFile = File(...),
     sheet_name: str = Form(""),
     header_row: int = Form(3),
+    db: Session = Depends(get_db),
 ):
     """Excel 업로드 → 시트 선택 → 미리보기"""
     from helpers import load_workbook_any
@@ -464,6 +473,12 @@ async def import_xlsx_preview(
                 vat = float(_v(row, "세액") or 0)
             except Exception:
                 errs.append(f"행 {i}: 공급가액/세액 숫자 오류"); continue
+            def _d(key):
+                v = _v(row, key)
+                if isinstance(v, datetime):
+                    return v.date().isoformat()
+                s = str(v or "").strip()
+                return s[:10] if s else ""
             preview.append({
                 "row_no": i, "txn_date": dt, "party_name": party_name,
                 "party_code": str(_v(row, "공급받는자사업자등록번호") or "").strip(),
@@ -473,6 +488,13 @@ async def import_xlsx_preview(
                 "supply": supply, "vat": vat, "total": supply + vat,
                 "payment_method": str(_v(row, "영수/청구 구분") or "").strip(),
                 "note": str(_v(row, "비고") or "").strip(),
+                # 홈택스 원본 메타 — commit 시 TaxInvoice(발급목록) 자동 생성용
+                "_ht": 1,
+                "_ht_approval": str(_v(row, "승인번호") or "").strip(),
+                "_ht_issue_date": _d("발급일자"),
+                "_ht_transmit_date": _d("전송일자"),
+                "_ht_buyer_ceo": str(_v(row, "대표자명.1") or "").strip(),
+                "_ht_buyer_email": str(_v(row, "이메일.1") or _v(row, "이메일") or "").strip(),
             })
     else:
         for i, row in enumerate(rows[hdr_idx + 1:], start=hdr_idx + 2):
@@ -505,20 +527,81 @@ async def import_xlsx_preview(
                 "note": str(vals[9]).strip() if vals[9] else "",
             })
 
+    # 🔍 중복 감지 — 기존 DB + 같은 배치 내 중복 표시
+    from dedup import annotate_duplicates
+    dup_stats = annotate_duplicates(db, "sale", preview)
+
     import json as _json
     encoded = _json.dumps(preview, default=str, ensure_ascii=False)
     return templates.TemplateResponse("sales/import_xlsx.html", {
         "request": request, "headers": XLSX_HEADERS,
         "preview": preview, "errors": errs, "encoded": encoded,
         "sheets": sheets, "selected_sheet": sel, "header_row": hdr_idx + 1,
+        "dup_stats": dup_stats,
     })
 
 
+def _create_hometax_invoices(db, rows) -> int:
+    """홈택스 목록 Excel 업로드 → 발급목록(TaxInvoice) 자동 등록.
+    승인번호가 이미 있으면 스킵 (재업로드 안전). 반환: 생성 건수."""
+    from models import TaxInvoice
+    created = 0
+    for r in rows:
+        appr = (r.get("_ht_approval") or "").strip()
+        if not r.get("_ht") or not appr:
+            continue
+        exists = db.execute(select(TaxInvoice.id)
+                            .where(TaxInvoice.invoice_no == appr).limit(1)).first()
+        if exists:
+            continue
+        def _pd(s):
+            try:
+                return datetime.strptime(str(s)[:10], "%Y-%m-%d").date() if s else None
+            except Exception:
+                return None
+        wd = _pd(r.get("txn_date"))
+        supply = float(r.get("supply") or 0)
+        vat = float(r.get("vat") or 0)
+        inv = TaxInvoice(
+            direction="sale",
+            doc_kind="세금계산서" if vat else "계산서(면세)",
+            invoice_no=appr,
+            write_date=wd,
+            issue_date=_pd(r.get("_ht_issue_date")),
+            transmit_date=_pd(r.get("_ht_transmit_date")),
+            buyer_corp_no=(r.get("party_code") or "").strip() or None,
+            buyer_name=r.get("party_name"), party_name=r.get("party_name"),
+            buyer_ceo=(r.get("_ht_buyer_ceo") or "").strip() or None,
+            buyer_email=(r.get("_ht_buyer_email") or "").strip() or None,
+            item_desc=(r.get("item_raw") or "").strip() or None,
+            items_json=__import__("json").dumps(
+                [{"월": f"{wd.month:02d}" if wd else "", "일": f"{wd.day:02d}" if wd else "",
+                  "품목": (r.get("item_raw") or "").strip(),
+                  "공급가액": supply, "세액": vat}], ensure_ascii=False),
+            supply=supply, vat=vat, total=supply + vat,
+            claim_kind=(r.get("payment_method") or "청구").strip() or "청구",
+            note=(r.get("note") or "").strip() or None,
+            status="sent", issue_method="hometax", source="hometax",
+        )
+        db.add(inv); created += 1
+    if created:
+        db.commit()
+    return created
+
+
 @router.post("/import-xlsx/commit")
-def import_xlsx_commit(db: Session = Depends(get_db), payload: str = Form(...)):
-    """Excel 미리보기 확정 적재"""
+def import_xlsx_commit(db: Session = Depends(get_db), payload: str = Form(...),
+                       force_dup: str = Form("")):
+    """Excel 미리보기 확정 적재 — 기본은 중복 행 자동 스킵."""
     import json as _json
     rows = _json.loads(payload)
+    rows_all = list(rows)  # 홈택스 발급목록 생성용 (중복 스킵과 무관하게 전체)
+    # commit 시점 기준으로 항상 중복 재검사 — 미리보기 이후 DB가 변했거나 payload 재전송(stale) 방지
+    from dedup import annotate_duplicates
+    annotate_duplicates(db, "sale", rows)
+    from dedup import filter_for_commit
+    keep, skipped = filter_for_commit(rows, allow_duplicates=bool(force_dup))
+    rows = keep
     n = 0
     ids = []
     for r in rows:
@@ -549,8 +632,18 @@ def import_xlsx_commit(db: Session = Depends(get_db), payload: str = Form(...)):
         ids.append(s.id)
         n += 1
     db.commit()
-    bid = _record_batch(db, "xlsx", ids, f"Excel 업로드 {n}건")
-    return RedirectResponse(f"/sales?imported_xlsx={n}&batch={bid}", status_code=303)
+    # 홈택스 목록 파일이면 발급목록(TaxInvoice)에도 자동 등록
+    ht_created = 0
+    try:
+        ht_created = _create_hometax_invoices(db, rows_all)
+    except Exception as e:
+        print(f"[sales] 홈택스 발급목록 등록 실패: {e}")
+    bid = _record_batch(db, "xlsx", ids,
+                        f"Excel 업로드 {n}건 (중복 {skipped}건 스킵"
+                        + (f", 계산서 {ht_created}건 발급목록 등록" if ht_created else "") + ")")
+    return RedirectResponse(
+        f"/sales?imported_xlsx={n}&batch={bid}&skipped={skipped}"
+        + (f"&invoices={ht_created}" if ht_created else ""), status_code=303)
 
 
 @router.get("/import-csv", response_class=HTMLResponse)
@@ -576,7 +669,8 @@ def csv_template():
 
 
 @router.post("/import-csv/preview", response_class=HTMLResponse)
-async def import_csv_preview(request: Request, file: UploadFile = File(...)):
+async def import_csv_preview(request: Request, file: UploadFile = File(...),
+                             db: Session = Depends(get_db)):
     raw = await file.read()
     # BOM 처리 + UTF-8/CP949 자동 감지
     text = None
@@ -635,12 +729,16 @@ async def import_csv_preview(request: Request, file: UploadFile = File(...)):
             "payment_method": row[8].strip(), "note": row[9].strip(),
         })
 
-    # 미리보기를 세션 대용으로 file 임시에 저장 (간단히 — 데이터를 JSON으로 form에 다시 넣어 confirm 페이지로 넘김)
+    # 🔍 중복 감지
+    from dedup import annotate_duplicates
+    dup_stats = annotate_duplicates(db, "sale", preview)
+
     import json
     encoded = json.dumps(preview, default=str, ensure_ascii=False)
     return templates.TemplateResponse("sales/import_csv.html", {
         "request": request, "headers": CSV_HEADERS,
         "preview": preview, "errors": errs, "encoded": encoded,
+        "dup_stats": dup_stats,
     })
 
 
@@ -648,9 +746,16 @@ async def import_csv_preview(request: Request, file: UploadFile = File(...)):
 def import_csv_commit(
     db: Session = Depends(get_db),
     payload: str = Form(...),
+    force_dup: str = Form(""),
 ):
     import json
     rows = json.loads(payload)
+    # commit 시점 기준으로 항상 중복 재검사 (stale payload 방지)
+    from dedup import annotate_duplicates
+    annotate_duplicates(db, "sale", rows)
+    from dedup import filter_for_commit
+    keep, skipped = filter_for_commit(rows, allow_duplicates=bool(force_dup))
+    rows = keep
     n = 0
     ids = []
     for r in rows:
@@ -681,8 +786,8 @@ def import_csv_commit(
         ids.append(s.id)
         n += 1
     db.commit()
-    bid = _record_batch(db, "csv", ids, f"CSV 업로드 {n}건")
-    return RedirectResponse(f"/sales?imported={n}&batch={bid}", status_code=303)
+    bid = _record_batch(db, "csv", ids, f"CSV 업로드 {n}건 (중복 {skipped}건 스킵)")
+    return RedirectResponse(f"/sales?imported={n}&batch={bid}&skipped={skipped}", status_code=303)
 
 
 def _record_batch(db, kind, ids, note=""):
@@ -804,9 +909,18 @@ def update_sale(
 
 
 @router.post("/{sale_id}/delete")
-def delete_sale(sale_id: int, db: Session = Depends(get_db), back: str = Form("")):
+def delete_sale(sale_id: int, request: Request, db: Session = Depends(get_db), back: str = Form("")):
     row = db.get(Sale, sale_id)
-    if row: db.delete(row); db.commit()
+    if row:
+        # 🛡 User Intent Ledger — 삭제 의도 영구 기록 (재sync 시 재삽입 차단)
+        try:
+            from user_intent import record_deletion
+            record_deletion(db, kind="sale", row=row,
+                            reason="사용자 개별 삭제 (/sales UI)",
+                            client_ip=request.client.host if request.client else "")
+        except Exception as e:
+            print(f"[sales] user_intent 기록 실패: {e}")
+        db.delete(row); db.commit()
     if back and back.startswith("/sales"):
         return RedirectResponse(back, status_code=303)
     return RedirectResponse("/sales", status_code=303)

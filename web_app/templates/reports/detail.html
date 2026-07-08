@@ -14,6 +14,77 @@
   }
   .rpt-cell:hover .rpt-refresh { opacity: 0.9; }
   .rpt-refresh:hover { background: var(--inviz-purple-dark); }
+  /* 산출 근거(돋보기) 버튼 — 갱신 버튼 왼쪽 */
+  .rpt-why {
+    opacity: 0; position: absolute; top: 1px; right: 20px;
+    font-size: 11px; line-height: 1; padding: 1px 3px; border-radius: 3px;
+    background: var(--inviz-orange); color: #fff; border: 0; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .rpt-cell:hover .rpt-why { opacity: 0.9; }
+  .rpt-why:hover { background: var(--inviz-orange-dark); }
+  /* 산출 근거 드로어 */
+  #bdDrawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 560px; max-width: 92vw;
+    background: #fff; box-shadow: -4px 0 20px rgba(0,0,0,0.18);
+    z-index: 60; transform: translateX(110%); transition: transform .22s ease;
+    display: flex; flex-direction: column;
+  }
+  #bdDrawer.open { transform: translateX(0); }
+  #bdBackdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.32); z-index: 59;
+    opacity: 0; pointer-events: none; transition: opacity .22s ease;
+  }
+  #bdBackdrop.open { opacity: 1; pointer-events: auto; }
+  .bd-head {
+    padding: 14px 18px; border-bottom: 1px solid #E5E7EB;
+    background: linear-gradient(90deg, var(--inviz-purple-50), #FFF);
+  }
+  .bd-body { padding: 14px 18px; overflow-y: auto; flex: 1; }
+  .bd-section { margin-bottom: 18px; }
+  .bd-section h4 {
+    font-size: 12px; font-weight: 700; color: var(--inviz-purple);
+    margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .bd-kpi { background: #F5EDFA; border-radius: 8px; padding: 12px 14px; }
+  .bd-kpi .num {
+    font-size: 22px; font-weight: 800; color: var(--inviz-purple-dark);
+    font-variant-numeric: tabular-nums;
+  }
+  .bd-formula {
+    font-family: 'Consolas', 'Cascadia Code', monospace; font-size: 13px;
+    background: #FFF7ED; border: 1px dashed #FED7AA; border-radius: 6px;
+    padding: 8px 12px; color: #9A3412;
+  }
+  .bd-comp-list { display: flex; flex-direction: column; gap: 4px; }
+  .bd-comp {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px; border-radius: 6px; background: #F8FAFC;
+    border: 1px solid #E2E8F0; font-size: 13px;
+  }
+  .bd-comp:hover { background: #F5EDFA; cursor: pointer; }
+  .bd-comp .sign { font-weight: 700; margin-right: 6px; }
+  .bd-comp .sign-plus { color: #059669; }
+  .bd-comp .sign-minus { color: #DC2626; }
+  .bd-rows table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .bd-rows th {
+    background: #F1F5F9; padding: 6px 8px; text-align: left;
+    border-bottom: 2px solid #CBD5E1; position: sticky; top: 0;
+  }
+  .bd-rows td { padding: 5px 8px; border-bottom: 1px solid #F1F5F9; }
+  .bd-rows td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bd-rows tr:hover td { background: #FFFBEB; }
+  .bd-close {
+    background: transparent; border: 0; cursor: pointer;
+    font-size: 22px; color: #94A3B8; padding: 0; line-height: 1;
+  }
+  .bd-close:hover { color: var(--inviz-purple); }
+  .bd-tab {
+    display: inline-block; padding: 5px 10px; font-size: 12px; border-radius: 6px;
+    background: #EDE9FE; color: var(--inviz-purple-dark); margin-right: 4px;
+    cursor: pointer; user-select: none;
+  }
+  .bd-tab.active { background: var(--inviz-purple); color: #fff; font-weight: 700; }
   /* 갱신·수정 하이라이트 */
   td.cell-refreshed { background: #D1FAE5 !important; box-shadow: inset 0 0 0 1.5px #10B981; }
   td.cell-edited    { background: #FEF3C7 !important; box-shadow: inset 0 0 0 1.5px #F59E0B; }
@@ -156,6 +227,22 @@
     </div>
   </div>
 </div>
+
+<!-- 산출 근거 드로어 (우측 슬라이드) -->
+<div id="bdBackdrop" onclick="closeBreakdown()"></div>
+<aside id="bdDrawer" role="dialog" aria-label="산출 근거">
+  <div class="bd-head flex items-center justify-between">
+    <div>
+      <div class="text-[11px] uppercase tracking-wider text-slate-500">🔍 산출 근거 (Breakdown)</div>
+      <h3 class="text-lg font-bold" style="color: var(--inviz-purple);" id="bdTitle">—</h3>
+      <div class="text-xs text-slate-500 mt-1" id="bdMeta"></div>
+    </div>
+    <button class="bd-close" onclick="closeBreakdown()" title="닫기">✕</button>
+  </div>
+  <div class="bd-body" id="bdBody">
+    <div class="text-center text-slate-400 py-10">불러오는 중...</div>
+  </div>
+</aside>
 
 <!-- 저장 다이얼로그 -->
 <div id="saveDialog" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center" style="display:none;">
@@ -413,6 +500,156 @@
 
   // 초기 로드
   loadSnapshots();
+
+  // ===== 산출 근거 (Breakdown) =====
+  function _esc(s){ return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function _money(n){
+    const v = Number(n);
+    if (!isFinite(v)) return _esc(n);
+    return v.toLocaleString('ko-KR', {maximumFractionDigits: 0});
+  }
+  function _isNumLike(v){
+    if (v === null || v === undefined || v === '') return false;
+    const n = Number(v);
+    return isFinite(n);
+  }
+
+  async function showBreakdown(btn) {
+    const td = btn.closest('.rpt-cell');
+    const tmpl = td?.getAttribute('data-template');
+    if (!tmpl) return;
+    openDrawer('산출 근거', td.querySelector('.rpt-val')?.textContent || '', '<div class="text-center text-slate-400 py-10">분석 중…</div>');
+    try {
+      const url = `/reports/${TPL_ID}/breakdown?template=${encodeURIComponent(tmpl)}`;
+      const r = await fetch(url);
+      const data = await r.json();
+      if (!data.ok) {
+        document.getElementById('bdBody').innerHTML = `<div class="text-red-600 text-sm py-6 text-center">⚠️ ${_esc(data.message || '근거를 불러오지 못했습니다')}</div>`;
+        return;
+      }
+      renderBreakdown(data);
+    } catch (e) {
+      document.getElementById('bdBody').innerHTML = `<div class="text-red-600 text-sm py-6 text-center">⚠️ 통신 오류: ${_esc(e.message || e)}</div>`;
+    }
+  }
+
+  // variable(예: '매출.올해')만으로 호출 — 컴포넌트 클릭 시
+  async function showBreakdownByVar(variable) {
+    openDrawer('산출 근거', variable, '<div class="text-center text-slate-400 py-10">분석 중…</div>');
+    try {
+      const url = `/reports/${TPL_ID}/breakdown?variable=${encodeURIComponent(variable)}`;
+      const r = await fetch(url);
+      const data = await r.json();
+      if (!data.ok) {
+        document.getElementById('bdBody').innerHTML = `<div class="text-red-600 text-sm py-6 text-center">⚠️ ${_esc(data.message)}</div>`;
+        return;
+      }
+      renderBreakdown(data);
+    } catch (e) {
+      document.getElementById('bdBody').innerHTML = `<div class="text-red-600 text-sm py-6 text-center">⚠️ 통신 오류</div>`;
+    }
+  }
+
+  function openDrawer(title, meta, bodyHtml) {
+    document.getElementById('bdTitle').textContent = title;
+    document.getElementById('bdMeta').textContent = meta || '';
+    document.getElementById('bdBody').innerHTML = bodyHtml;
+    document.getElementById('bdDrawer').classList.add('open');
+    document.getElementById('bdBackdrop').classList.add('open');
+  }
+  function closeBreakdown() {
+    document.getElementById('bdDrawer').classList.remove('open');
+    document.getElementById('bdBackdrop').classList.remove('open');
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeBreakdown(); });
+
+  function renderBreakdown(data) {
+    const items = data.items || [];
+    const body = document.getElementById('bdBody');
+    if (!items.length) { body.innerHTML = '<div class="text-slate-400 py-6 text-center">표시할 항목이 없습니다.</div>'; return; }
+
+    document.getElementById('bdTitle').textContent = items.length === 1 ? items[0].label : `산출 근거 (${items.length}개 항목)`;
+    document.getElementById('bdMeta').textContent = _esc(data.template || '');
+
+    // 탭 (여러 placeholder가 한 셀에 있을 때)
+    let tabs = '';
+    if (items.length > 1) {
+      tabs = '<div class="mb-3">' + items.map((it, i) =>
+        `<span class="bd-tab ${i===0?'active':''}" data-tab="${i}" onclick="switchBdTab(${i})">${_esc(it.variable || it.label)}</span>`
+      ).join('') + '</div>';
+    }
+    body.innerHTML = tabs + items.map((it, i) =>
+      `<div class="bd-pane" data-pane="${i}" ${i===0?'':'style="display:none"'}>${renderItem(it)}</div>`
+    ).join('');
+  }
+
+  window.switchBdTab = function(i) {
+    document.querySelectorAll('.bd-tab').forEach(t => t.classList.toggle('active', Number(t.dataset.tab) === i));
+    document.querySelectorAll('.bd-pane').forEach(p => p.style.display = Number(p.dataset.pane) === i ? '' : 'none');
+  };
+
+  function renderItem(it) {
+    const blocks = [];
+    const totalDisplay = _isNumLike(it.total) ? (_money(it.total) + ' 원') : _esc(it.total ?? '-');
+    // 1) KPI — 총액
+    blocks.push(`
+      <div class="bd-section">
+        <div class="bd-kpi">
+          <div class="text-xs text-slate-500">${_esc(it.label || it.variable || '')}</div>
+          <div class="num mt-1">${totalDisplay}</div>
+        </div>
+      </div>`);
+    // 2) 공식
+    if (it.formula) {
+      blocks.push(`<div class="bd-section"><h4>📐 산출 공식</h4><div class="bd-formula">${_esc(it.formula)}</div></div>`);
+    }
+    // 3) 기간
+    if (it.period && it.period.label) {
+      blocks.push(`<div class="bd-section"><h4>📅 기준 기간</h4><div class="text-sm text-slate-700">${_esc(it.period.label)}</div></div>`);
+    }
+    // 4) 구성요소 (복합 도메인)
+    if (it.components && it.components.length) {
+      const rows = it.components.map(c => {
+        const signCls = c.sign === '−' ? 'sign-minus' : 'sign-plus';
+        const click = c.domain ? ` onclick="showBreakdownByVar('${_esc(c.domain)}.${_esc((it.period && it.period.raw) || '올해')}')"` : '';
+        return `<div class="bd-comp"${click}>
+          <span><span class="sign ${signCls}">${_esc(c.sign || '+')}</span>${_esc(c.label)}</span>
+          <span class="font-semibold tabular-nums">${_money(c.value)} 원</span>
+        </div>`;
+      }).join('');
+      blocks.push(`<div class="bd-section"><h4>🧩 구성요소 (클릭 시 더 파고들기)</h4><div class="bd-comp-list">${rows}</div></div>`);
+    }
+    // 5) Source rows (원자 도메인)
+    if (it.rows && it.rows.length && it.fields) {
+      const ths = it.fields.map(([k,l]) => `<th>${_esc(l)}</th>`).join('');
+      const amtKey = it.amount_field;
+      const trs = it.rows.map(r => {
+        const tds = it.fields.map(([k,_]) => {
+          const v = r[k];
+          if (k === amtKey || (typeof v === 'number' && Math.abs(v) >= 100)) {
+            return `<td class="num">${_isNumLike(v) ? _money(v) : _esc(v ?? '')}</td>`;
+          }
+          return `<td>${_esc(v ?? '')}</td>`;
+        }).join('');
+        return `<tr>${tds}</tr>`;
+      }).join('');
+      const tableTitle = (it.source_table ? `${it.source_table} · ` : '') +
+                        `상위 ${it.rows.length}건 / 전체 ${_money(it.row_count || 0)}건`;
+      blocks.push(`<div class="bd-section">
+        <h4>📋 산출 대상 데이터 — ${_esc(tableTitle)}</h4>
+        <div class="bd-rows" style="max-height:340px; overflow-y:auto; border:1px solid #E5E7EB; border-radius:6px;">
+          <table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>
+        </div>
+      </div>`);
+    } else if (it.kind === 'atomic') {
+      blocks.push(`<div class="bd-section text-xs text-slate-400">해당 기간에 집계된 거래가 없습니다.</div>`);
+    }
+    // 6) 데이터 원천
+    if (it.source_table) {
+      blocks.push(`<div class="bd-section text-[11px] text-slate-400">데이터 원천: <code>${_esc(it.source_table)}</code></div>`);
+    }
+    return blocks.join('');
+  }
 </script>
 {% else %}
 <!-- 분석 전 안내 -->

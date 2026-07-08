@@ -1,0 +1,39 @@
+{#  중복 감지 패널 — 매출/매입 import 미리보기에 공통으로 포함.
+    필요: dup_stats = {new, db_dup, batch_dup}
+#}
+{% if dup_stats is defined and dup_stats %}
+{% set total_dup = dup_stats.db_dup + dup_stats.batch_dup %}
+<div class="card mb-4 {% if total_dup > 0 %}border-amber-300{% else %}border-green-200{% endif %}"
+     style="border-width:2px; background:linear-gradient(90deg, {% if total_dup > 0 %}#FFFBEB,#FEF3C7{% else %}#F0FDF4,#DCFCE7{% endif %});">
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="font-bold {% if total_dup > 0 %}text-amber-800{% else %}text-green-800{% endif %}">
+        {% if total_dup > 0 %}⚠️ 중복 감지 — {{ total_dup|money }}건의 중복 행을 발견했습니다{% else %}✓ 중복 없음 — 모두 신규 데이터입니다{% endif %}
+      </div>
+      <div class="text-xs text-slate-600 mt-1">
+        같은 (일자·거래처·공급가액)을 가진 거래를 기존 DB와 같은 업로드 배치 내부에서 모두 확인했습니다.
+      </div>
+    </div>
+    <div class="flex gap-2 text-xs">
+      <div class="px-3 py-2 bg-white rounded border text-center">
+        <div class="text-slate-500">✨ 신규</div>
+        <div class="font-bold text-lg text-green-700">{{ dup_stats.new|money }}</div>
+      </div>
+      <div class="px-3 py-2 bg-white rounded border text-center">
+        <div class="text-slate-500">🗄 DB 중복</div>
+        <div class="font-bold text-lg {% if dup_stats.db_dup > 0 %}text-amber-700{% else %}text-slate-400{% endif %}">{{ dup_stats.db_dup|money }}</div>
+      </div>
+      <div class="px-3 py-2 bg-white rounded border text-center">
+        <div class="text-slate-500">🔁 배치 중복</div>
+        <div class="font-bold text-lg {% if dup_stats.batch_dup > 0 %}text-amber-700{% else %}text-slate-400{% endif %}">{{ dup_stats.batch_dup|money }}</div>
+      </div>
+    </div>
+  </div>
+  {% if total_dup > 0 %}
+  <div class="mt-3 text-xs text-slate-700 bg-white/60 rounded px-3 py-2">
+    💡 <b>기본 동작</b>: ✓ 적용 시 중복 행은 자동으로 <b>스킵</b>되며 신규 {{ dup_stats.new|money }}건만 추가됩니다.
+    중복까지 모두 강제로 추가하려면 아래 <b>"중복 무시"</b> 체크박스를 켜세요.
+  </div>
+  {% endif %}
+</div>
+{% endif %}

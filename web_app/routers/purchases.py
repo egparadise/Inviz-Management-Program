@@ -154,8 +154,16 @@ def list_purchases(
         .order_by(ImportBatch.id.desc()).limit(5)
     ).scalars().all()
 
+    # 현재 페이지 거래처 코드 → 사업자번호 매핑
+    party_codes = list({r.party_code for r in rows if r.party_code})
+    party_biz_map = {}
+    if party_codes:
+        for p in db.execute(select(Party).where(Party.code.in_(party_codes))).scalars():
+            party_biz_map[p.code] = p.biz_no
+
     return templates.TemplateResponse("purchases/list.html", {
         "request": request, "rows": rows,
+        "party_biz_map": party_biz_map,
         "total_count": total_count,
         "sum_supply": sum_supply, "sum_vat": sum_vat, "sum_total": sum_total,
         "party_top": [(r[0], r[1], float(r[2] or 0)) for r in party_top],
@@ -324,6 +332,7 @@ async def import_xlsx_preview_p(
     file: UploadFile = File(...),
     sheet_name: str = Form(""),
     header_row: int = Form(3),
+    db: Session = Depends(get_db),
 ):
     from helpers import load_workbook_any
     raw = await file.read()
@@ -441,11 +450,16 @@ async def import_xlsx_preview_p(
                 "note": str(vals[9]).strip() if vals[9] else "",
             })
 
+    # 🔍 중복 감지
+    from dedup import annotate_duplicates
+    dup_stats = annotate_duplicates(db, "purchase", preview)
+
     encoded = json.dumps(preview, default=str, ensure_ascii=False)
     return templates.TemplateResponse("purchases/import_xlsx.html", {
         "request": request, "headers": XLSX_HEADERS_P,
         "preview": preview, "errors": errs, "encoded": encoded,
         "sheets": sheets, "selected_sheet": sel, "header_row": hdr_idx + 1,
+        "dup_stats": dup_stats,
     })
 
 
@@ -461,8 +475,15 @@ def _record_purchase_batch(db, kind: str, ids: list, note: str = ""):
 
 
 @router.post("/import-xlsx/commit")
-def import_xlsx_commit_p(db: Session = Depends(get_db), payload: str = Form(...)):
+def import_xlsx_commit_p(db: Session = Depends(get_db), payload: str = Form(...),
+                         force_dup: str = Form("")):
     rows = json.loads(payload)
+    # commit 시점 기준으로 항상 중복 재검사 (stale payload 방지)
+    from dedup import annotate_duplicates
+    annotate_duplicates(db, "purchase", rows)
+    from dedup import filter_for_commit
+    keep, skipped = filter_for_commit(rows, allow_duplicates=bool(force_dup))
+    rows = keep
     n = 0
     ids = []
     for r in rows:
@@ -487,8 +508,8 @@ def import_xlsx_commit_p(db: Session = Depends(get_db), payload: str = Form(...)
         p.txn_id = f"P-XLSX-{p.id:06d}"
         ids.append(p.id); n += 1
     db.commit()
-    bid = _record_purchase_batch(db, "xlsx", ids, note=f"Excel 업로드 {n}건")
-    return RedirectResponse(f"/purchases?imported_xlsx={n}&batch={bid}", status_code=303)
+    bid = _record_purchase_batch(db, "xlsx", ids, note=f"Excel 업로드 {n}건 (중복 {skipped}건 스킵)")
+    return RedirectResponse(f"/purchases?imported_xlsx={n}&batch={bid}&skipped={skipped}", status_code=303)
 
 
 @router.get("/import-csv", response_class=HTMLResponse)
@@ -512,7 +533,8 @@ def csv_template():
 
 
 @router.post("/import-csv/preview", response_class=HTMLResponse)
-async def import_csv_preview(request: Request, file: UploadFile = File(...)):
+async def import_csv_preview(request: Request, file: UploadFile = File(...),
+                             db: Session = Depends(get_db)):
     raw = await file.read()
     text = None
     for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
@@ -561,16 +583,28 @@ async def import_csv_preview(request: Request, file: UploadFile = File(...)):
             "supply": supply, "vat": vat, "total": supply + vat,
             "payment_method": row[8].strip(), "note": row[9].strip(),
         })
+    # 🔍 중복 감지
+    from dedup import annotate_duplicates
+    dup_stats = annotate_duplicates(db, "purchase", preview)
+
     encoded = json.dumps(preview, default=str, ensure_ascii=False)
     return templates.TemplateResponse("purchases/import_csv.html", {
         "request": request, "headers": CSV_HEADERS_P,
         "preview": preview, "errors": errs, "encoded": encoded,
+        "dup_stats": dup_stats,
     })
 
 
 @router.post("/import-csv/commit")
-def import_csv_commit(db: Session = Depends(get_db), payload: str = Form(...)):
+def import_csv_commit(db: Session = Depends(get_db), payload: str = Form(...),
+                      force_dup: str = Form("")):
     rows = json.loads(payload)
+    # commit 시점 기준으로 항상 중복 재검사 (stale payload 방지)
+    from dedup import annotate_duplicates
+    annotate_duplicates(db, "purchase", rows)
+    from dedup import filter_for_commit
+    keep, skipped = filter_for_commit(rows, allow_duplicates=bool(force_dup))
+    rows = keep
     n = 0
     ids = []
     for r in rows:
@@ -595,8 +629,8 @@ def import_csv_commit(db: Session = Depends(get_db), payload: str = Form(...)):
         p.txn_id = f"P-CSV-{p.id:06d}"
         ids.append(p.id); n += 1
     db.commit()
-    bid = _record_purchase_batch(db, "csv", ids, note=f"CSV 업로드 {n}건")
-    return RedirectResponse(f"/purchases?imported={n}&batch={bid}", status_code=303)
+    bid = _record_purchase_batch(db, "csv", ids, note=f"CSV 업로드 {n}건 (중복 {skipped}건 스킵)")
+    return RedirectResponse(f"/purchases?imported={n}&batch={bid}&skipped={skipped}", status_code=303)
 
 
 @router.post("/import/undo/{batch_id}")
@@ -700,9 +734,17 @@ def update_purchase(
 
 
 @router.post("/{pid}/delete")
-def delete_purchase(pid: int, db: Session = Depends(get_db), back: str = Form("")):
+def delete_purchase(pid: int, request: Request, db: Session = Depends(get_db), back: str = Form("")):
     row = db.get(Purchase, pid)
-    if row: db.delete(row); db.commit()
+    if row:
+        try:
+            from user_intent import record_deletion
+            record_deletion(db, kind="purchase", row=row,
+                            reason="사용자 개별 삭제 (/purchases UI)",
+                            client_ip=request.client.host if request.client else "")
+        except Exception as e:
+            print(f"[purchases] user_intent 기록 실패: {e}")
+        db.delete(row); db.commit()
     if back and back.startswith("/purchases"):
         return RedirectResponse(back, status_code=303)
     return RedirectResponse("/purchases", status_code=303)

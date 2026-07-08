@@ -135,6 +135,58 @@ def evaluate_changes(before: dict, after: dict, run_id: int, db: Session) -> dic
                 "before": before_v, "after": after_v,
                 "delta_pct": delta_pct, "status": status,
             })
+    # ====== 사용자 의도 보존 (Intent Ledger) — sync가 몇 번 재삽입을 차단했는지 기록 ======
+    try:
+        from user_intent import stats as intent_stats
+        ist = intent_stats(db)
+        active = int(ist.get("active_blocks") or 0)
+        prevented = int(ist.get("total_preventions") or 0)
+        # active_blocks가 있다면 시스템이 "감시 중"인 상태 → ok로 표시하되 정보 노출
+        status = "ok" if active < 500 else "warning"
+        ic = IntegrityCheck(
+            run_id=run_id, table_name="user_intent_ledger", metric="active_blocks",
+            before_value=0.0, after_value=float(active),
+            delta=float(active), delta_pct=0.0,
+            threshold_pct=500.0, status=status,
+            note=f"활성 차단 {active}건 · 누적 방어 {prevented}회 — sync가 사용자 삭제를 재삽입하지 않도록 감시 중",
+        )
+        db.add(ic); rows_added.append(ic)
+    except Exception as e:
+        print(f"[self_dev] intent status 실패: {e}")
+
+    # ====== 중복 감시 (Dedup Guardian) — sync 후 매출/매입 중복률을 함께 점검 ======
+    try:
+        from dedup import overall_stats
+        ds = overall_stats(db)
+        for kind, label in [("sale", "fact_sale"), ("purchase", "fact_purchase")]:
+            d = ds[kind]
+            # 중복 초과 행수가 0 이상이면 warning, 1% 이상이면 critical
+            excess = int(d["dup_excess_rows"])
+            rate = float(d["dup_rate_pct"])
+            if excess <= 0:
+                status = "ok"
+            elif rate >= 1.0:
+                status = "critical"
+            else:
+                status = "warning"
+            ic = IntegrityCheck(
+                run_id=run_id, table_name=label, metric="duplicate_excess_rows",
+                before_value=0.0, after_value=float(excess),
+                delta=float(excess), delta_pct=rate,
+                threshold_pct=1.0, status=status,
+                note=f"중복 그룹 {d['dup_groups']} · 중복률 {rate}% · 0건 = 정상, ≥1% = critical",
+            )
+            db.add(ic)
+            rows_added.append(ic)
+            if status in ("warning", "critical"):
+                suspicious.append({
+                    "table": label, "metric": "duplicate_excess_rows",
+                    "before": 0, "after": excess,
+                    "delta_pct": rate, "status": status,
+                })
+    except Exception as e:
+        print(f"[self_dev] dedup check 실패: {e}")
+
     db.commit()
     return {"suspicious": suspicious, "checks": len(rows_added)}
 

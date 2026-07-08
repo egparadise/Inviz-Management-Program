@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}거래처 건별등록 — 인비즈{% endblock %}
+{% block content %}
+<style>
+  .pn-t { width:100%; border-collapse:collapse; font-size:13px; }
+  .pn-t th { background:#EBF5F3; border:1px solid #D5E3E0; padding:9px 12px; font-weight:600; text-align:left; width:180px; white-space:nowrap; }
+  .pn-t td { border:1px solid #D5E3E0; padding:7px 12px; background:#fff; }
+  .pn-t input[type=text] { border:1px solid #CBD5E1; border-radius:4px; padding:6px 9px; font-size:13px; }
+  .pn-btn { border:1.5px solid #2563EB; color:#2563EB; background:#fff; border-radius:6px; padding:9px 18px; font-size:14px; cursor:pointer; font-weight:600; text-decoration:none; display:inline-block; }
+  .pn-btn:hover { background:#EFF6FF; }
+  .pn-btn-primary { border:0; background:#2563EB; color:#fff; border-radius:6px; padding:9px 26px; font-size:14px; cursor:pointer; font-weight:700; }
+  .pn-btn-primary:hover { background:#1D4ED8; }
+  .pn-calc { background:#0E7C7B; color:#fff; border:0; border-radius:4px; font-size:12px; padding:6px 12px; cursor:pointer; }
+  .pn-calc:hover { background:#0A5F5E; }
+</style>
+
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-2xl font-bold" style="color: var(--inviz-purple);">👤 거래처 건별등록</h1>
+</div>
+
+{% if request.query_params.get('_msg') %}
+<div class="card mb-3" style="background:{% if '❌' in request.query_params.get('_msg') %}#FEF2F2; border:1px solid #FECACA{% else %}#F0FDF4; border:1px solid #86EFAC{% endif %};">
+  <div class="text-sm {% if '❌' in request.query_params.get('_msg') %}text-red-700{% else %}text-green-800{% endif %}">{{ request.query_params.get('_msg') }}</div>
+</div>
+{% endif %}
+
+<!-- 안내 (홈택스 원문) -->
+<div class="card mb-4 text-sm text-slate-700" style="background:#F8FAFF; border:1px solid #DBEAFE;">
+  · 새로운 거래처정보를 입력하는 화면입니다.<br>
+  · 거래처 주(부)담당자 외 담당자 추가는 「거래처정보관리-거래처정보 수정 및 삭제」에서 할 수 있습니다.
+</div>
+
+<form method="post" action="/tax/parties/new" id="pnForm">
+<!-- 기본 정보 -->
+<div class="card mb-3" style="padding:0; overflow:hidden;">
+  <table class="pn-t">
+    <tr>
+      <th><span class="text-red-600">*</span> 거래처 사업자등록번호</th>
+      <td>
+        <div class="flex items-center gap-1">
+          <input type="text" name="biz_no" id="pnBizNo" placeholder="000-00-00000" style="width:150px;">
+          <button type="button" class="pn-calc" onclick="pnCheckBizNo()">확인</button>
+          <span id="pnBizNoResult" class="text-xs ml-2"></span>
+        </div>
+      </td>
+      <th>종사업장번호</th>
+      <td><input type="text" name="sub_biz_no" style="width:110px;"></td>
+    </tr>
+    <tr>
+      <th><span class="text-red-600">*</span> 상호(법인명)</th>
+      <td><input type="text" name="name" required style="width:260px;"></td>
+      <th><span class="text-red-600">*</span> 대표자</th>
+      <td><input type="text" name="ceo" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>사업장 주소</th>
+      <td colspan="3">
+        <div class="flex items-center gap-1">
+          <input type="text" name="address" class="flex-1">
+          <button type="button" class="pn-btn text-xs px-3 py-1"
+                  onclick="const a=document.querySelector('[name=address]').value || document.querySelector('[name=name]').value; if(a) window.open('https://map.naver.com/p/search/'+encodeURIComponent(a));">주소조회</button>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <th>업태</th>
+      <td>
+        <div class="flex items-center gap-1">
+          <input type="text" name="biz_type" style="width:170px;" list="pnBizTypeList">
+          <datalist id="pnBizTypeList">
+            <option>보건업</option><option>의료업</option><option>도매 및 소매업</option><option>제조업</option>
+            <option>서비스업</option><option>정보통신업</option><option>부동산업</option>
+          </datalist>
+          <button type="button" class="pn-btn text-xs px-3 py-1" onclick="document.querySelector('[name=biz_type]').focus()">조회</button>
+        </div>
+      </td>
+      <th>종목</th>
+      <td><input type="text" name="biz_item" style="width:170px;"></td>
+    </tr>
+    <tr>
+      <th>구분 / 주거래처</th>
+      <td colspan="3">
+        <select name="category" class="border rounded px-2 py-1 text-sm">
+          {% for c in ['병원','대리점','공급사','영상센터','교육/연구','금융','법인기타','기타'] %}
+          <option value="{{ c }}">{{ c }}</option>
+          {% endfor %}
+        </select>
+        <label class="ml-4 text-sm cursor-pointer"><input type="checkbox" name="is_main" value="Y"> ⭐ 주거래처로 지정</label>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<!-- 담당자 (주/부) -->
+<div class="card mb-3" style="padding:0; overflow:hidden;">
+  <table class="pn-t">
+    <tr>
+      <th>주담당부서명</th><td><input type="text" name="dept_main" style="width:220px;"></td>
+      <th>부담당부서명</th><td><input type="text" name="dept_sub" style="width:220px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자명</th><td><input type="text" name="contact_person" style="width:160px;"></td>
+      <th>부담당자명</th><td><input type="text" name="contact_person2" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자전화번호</th><td><input type="text" name="phone" style="width:160px;"></td>
+      <th>부담당자전화번호</th><td><input type="text" name="phone2" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자휴대전화번호</th><td><input type="text" name="mobile" style="width:160px;"></td>
+      <th>부담당자휴대전화번호</th><td><input type="text" name="mobile2" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자팩스번호</th><td><input type="text" name="fax" style="width:160px;"></td>
+      <th>부담당자팩스번호</th><td><input type="text" name="fax2" style="width:160px;"></td>
+    </tr>
+    <tr>
+      <th>주담당자이메일</th>
+      <td>
+        <div class="flex items-center gap-1">
+          <input type="text" name="email_local" style="width:100px;"><span>@</span>
+          <input type="text" name="email_domain" id="pnDom1" style="width:130px;">
+          <select class="border rounded px-1 py-1 text-xs" onchange="if(this.value)document.getElementById('pnDom1').value=this.value;">
+            <option value="">직접입력</option><option>naver.com</option><option>gmail.com</option>
+            <option>daum.net</option><option>hanmail.net</option><option>hometax.go.kr</option>
+          </select>
+        </div>
+      </td>
+      <th>부담당자이메일</th>
+      <td>
+        <div class="flex items-center gap-1">
+          <input type="text" name="email2_local" style="width:100px;"><span>@</span>
+          <input type="text" name="email2_domain" id="pnDom2" style="width:130px;">
+          <select class="border rounded px-1 py-1 text-xs" onchange="if(this.value)document.getElementById('pnDom2').value=this.value;">
+            <option value="">직접입력</option><option>naver.com</option><option>gmail.com</option>
+            <option>daum.net</option><option>hanmail.net</option><option>hometax.go.kr</option>
+          </select>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <th>주담당자 비고</th><td><input type="text" name="contact_note" class="w-full"></td>
+      <th>부담당자 비고</th><td><input type="text" name="contact_note2" class="w-full"></td>
+    </tr>
+  </table>
+</div>
+
+<!-- 하단 버튼 (홈택스 배치: 목록·초기화 좌 / 일괄등록·등록하기 우) -->
+<div class="flex items-center justify-between mt-4">
+  <div class="flex gap-2">
+    <a href="/tax/parties" class="pn-btn">목록</a>
+    <button type="button" class="pn-btn" onclick="if(confirm('입력한 내용을 모두 지울까요?')) document.getElementById('pnForm').reset();">초기화</button>
+  </div>
+  <div class="flex gap-2">
+    <a href="/parties/enrich" target="_blank" class="pn-btn">일괄등록</a>
+    <button type="submit" class="pn-btn-primary">등록하기</button>
+  </div>
+</div>
+</form>
+
+<script>
+  // 사업자번호 [확인] — 중복 검사
+  async function pnCheckBizNo() {
+    const v = document.getElementById('pnBizNo').value.trim();
+    const out = document.getElementById('pnBizNoResult');
+    if (!v) { out.textContent = '사업자번호를 입력하세요'; out.className = 'text-xs ml-2 text-amber-600'; return; }
+    const digits = v.replace(/\D/g, '');
+    if (digits.length !== 10) { out.textContent = '⚠ 10자리 사업자번호가 아닙니다'; out.className = 'text-xs ml-2 text-amber-600'; return; }
+    try {
+      const r = await fetch(`/tax/api/party-search?biz_no=${encodeURIComponent(v)}`);
+      const d = await r.json();
+      const exact = (d.rows || []).find(x => (x.biz_no || '').replace(/\D/g, '') === digits);
+      if (exact) {
+        out.innerHTML = `❌ 이미 등록됨: <a href="/tax/parties/${exact.code}" class="underline font-semibold">${exact.name} (${exact.code})</a>`;
+        out.className = 'text-xs ml-2 text-red-600';
+      } else {
+        out.textContent = '✓ 등록 가능한 사업자번호입니다';
+        out.className = 'text-xs ml-2 text-green-700';
+      }
+    } catch (e) { out.textContent = '확인 실패'; out.className = 'text-xs ml-2 text-red-600'; }
+  }
+</script>
+{% endblock %}

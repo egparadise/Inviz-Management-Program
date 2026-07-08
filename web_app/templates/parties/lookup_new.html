@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ extracted.name }} — 거래처 등록{% endblock %}
+{% block content %}
+<div class="card mb-3" style="background: #FEF3C7; border-left:4px solid #F59E0B;">
+  <h3 class="font-bold text-amber-900">⚠️ 미등록 거래처</h3>
+  <p class="text-sm text-amber-800 mt-1">
+    "<b>{{ extracted.name }}</b>" 는 아직 dim_party에 등록되지 않았습니다.
+    아래 거래 내역에서 추출한 정보를 확인·수정한 뒤 <b>저장</b>하면 거래처 마스터에 등록되고
+    이후 같은 거래처를 클릭하면 상세 페이지가 열립니다.
+  </p>
+</div>
+
+<!-- 거래 추출 요약 -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+  <div class="kpi-card" style="border-color: #7C3AED;">
+    <div class="text-xs text-slate-500">💰 매출 거래</div>
+    <div class="text-lg font-bold mt-1">{{ extracted.sale_count|money }}건</div>
+    <div class="text-xs text-slate-500">{{ extracted.sale_sum|money }}원</div>
+  </div>
+  <div class="kpi-card" style="border-color: #F97316;">
+    <div class="text-xs text-slate-500">📦 매입 거래</div>
+    <div class="text-lg font-bold mt-1">{{ extracted.purchase_count|money }}건</div>
+    <div class="text-xs text-slate-500">{{ extracted.purchase_sum|money }}원</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">최초 거래일</div>
+    <div class="text-lg font-bold mt-1">{{ extracted.first_seen or '-' }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="text-xs text-slate-500">최종 거래일</div>
+    <div class="text-lg font-bold mt-1">{{ extracted.last_seen or '-' }}</div>
+  </div>
+</div>
+
+<form method="post" action="/parties/quick-register" class="card max-w-3xl">
+  <h3 class="font-semibold mb-3" style="color: var(--inviz-purple);">📝 거래처 정보 등록</h3>
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="text-sm font-medium text-slate-700">거래처 코드 *</label>
+      <input type="text" name="code" value="{{ extracted.code }}" required class="input font-mono">
+      <div class="text-xs text-slate-400 mt-1">예: C0123 (자동 추천됨)</div>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">거래처명 *</label>
+      <input type="text" name="name" value="{{ extracted.name }}" required class="input">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">사업자등록번호</label>
+      <input type="text" name="biz_no" placeholder="예: 123-45-67890" class="input font-mono">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">구분</label>
+      <select name="category" class="select">
+        <option value="">선택...</option>
+        {% for c in ['병원','대리점','공급사','영상센터','교육/연구','금융','법인기타','기타'] %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">주거래 제품</label>
+      <input type="text" name="main_product" value="{{ extracted.main_product }}" class="input">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">담당자</label>
+      <input type="text" name="contact_person" class="input">
+    </div>
+    <div>
+      <label class="text-sm font-medium text-slate-700">연락처</label>
+      <input type="text" name="phone" class="input" placeholder="010-1234-5678">
+    </div>
+    <div class="col-span-2">
+      <label class="text-sm font-medium text-slate-700">메모</label>
+      <textarea name="note" rows="2" class="input"></textarea>
+    </div>
+  </div>
+  <div class="flex gap-2 mt-4">
+    <button type="submit" class="btn btn-accent">💾 거래처 등록</button>
+    <a href="javascript:window.close()" class="btn btn-secondary">취소</a>
+  </div>
+</form>
+{% endblock %}

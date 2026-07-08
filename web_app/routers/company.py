@@ -12,9 +12,18 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from helpers import templates
-from models import CompanyInfo
+from models import CompanyInfo, Employee
 
 router = APIRouter()
+
+
+def employee_counts(db: Session) -> dict:
+    """직원 마스터(dim_employee) 실시간 집계 — 재직/전체."""
+    from sqlalchemy import func
+    total = db.scalar(select(func.count()).select_from(Employee)) or 0
+    active = db.scalar(select(func.count()).select_from(Employee)
+                       .where(Employee.active.in_(["재직", "Y"]))) or 0
+    return {"active": int(active), "total": int(total)}
 
 
 def get_or_create_company(db: Session) -> CompanyInfo:
@@ -42,10 +51,12 @@ def company_view(request: Request, db: Session = Depends(get_db), edit: str = ""
         shareholders = json.loads(ci.shareholders_json or "[]")
     except Exception:
         shareholders = []
+    emp = employee_counts(db)
     return templates.TemplateResponse("company/view.html", {
         "request": request, "ci": ci,
         "executives": executives, "shareholders": shareholders,
         "edit": edit == "1",
+        "emp_active": emp["active"], "emp_total": emp["total"],
     })
 
 
